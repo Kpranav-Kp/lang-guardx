@@ -1,26 +1,3 @@
-"""
-langguardx/detection/regex_detector.py
-
-Runs after the Bloom filter and before DistilBERT in the Layer 1 pipeline.
-Catches structural patterns the Bloom filter misses — things like SQL
-commands embedded in natural language, role-play framing, comment-style
-bypasses, and explicit override phrases.
-
-Why regex here and not just DistilBERT for everything?
-  - Regex is deterministic and O(n) on input length — no model load
-  - Bloom filter catches known exact signatures, regex catches structure
-  - DistilBERT only runs if both fast checks pass — saves latency
-  - Regex is fully explainable: you can log exactly which pattern fired
-
-Pattern categories:
-  1. SQL command injection in natural language
-  2. Explicit override / ignore phrases
-  3. Role-play / identity assumption attacks
-  4. Comment-style and obfuscation bypasses
-  5. Fake transcript / context hijacking
-  6. Privilege escalation phrases
-"""
-
 import re
 from dataclasses import dataclass
 
