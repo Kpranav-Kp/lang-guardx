@@ -6,8 +6,7 @@ from transformers import (
     DistilBertForSequenceClassification,
 )
 
-# Path to saved model — relative to this file's location
-DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "langguardx_distilbert"
+DEFAULT_MODEL_PATH = Path(__file__).parent.parent / "models" / "distilbert"
 
 LABELS: list[str] = ["SAFE", "DANGEROUS", "INJECTION"]
 
