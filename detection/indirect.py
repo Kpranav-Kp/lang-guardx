@@ -1,5 +1,8 @@
 import re
 from dataclasses import dataclass
+from typing import Callable, Optional
+from .bloom import BloomDetector
+from .regex import RegexDetector
 
 
 PLACEHOLDER = "[CONTENT REDACTED BY LANGGUARDX — INDIRECT INJECTION DETECTED]"
@@ -23,7 +26,12 @@ class IndirectScanner:
     in the main detection pipeline — no duplicate instantiation.
     """
 
-    def __init__(self, bloom_detector, regex_detector, normalizer_fn=None):
+    def __init__(
+            self,
+            bloom_detector: BloomDetector,
+            regex_detector: RegexDetector,
+            normalizer_fn: Optional[Callable[[str], str]] = None,
+        ):
         """
         Args:
             bloom_detector  : Instance of BloomDetector from bloom.py
@@ -66,7 +74,7 @@ class IndirectScanner:
         normalized = self.normalize(text)
 
         # Step 1 — Bloom filter
-        if self.bloom.contains(normalized):
+        if self.bloom.might_be_attack(normalized):
             return ScanResult(
                 flagged=True,
                 original=text,
