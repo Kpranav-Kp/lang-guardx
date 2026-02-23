@@ -1,0 +1,9 @@
+{
+  "total_samples": 2101,
+  "safe": 630,
+  "dangerous": 730,
+  "injection": 741,
+  "kfold_mean_acc": 0.9971,
+  "kfold_std_acc": 0.0011,
+  "final_test_acc": 1.0
+}

@@ -36,10 +36,10 @@ class SQLIntentClassifier:
         path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
 
         if not path.exists():
-            raise FileNotFoundError(
-                f"Model not found at {path}.\n"
-                f"Run training/finetune_distilbert.py in Colab and place the "
-                f"downloaded model folder at: {path}"
+            from huggingface_hub import snapshot_download
+            snapshot_download(
+                repo_id="KPranavKp/langguardx-distilbert",
+                local_dir=str(path)
             )
 
         # Load tokenizer and model from local safetensors

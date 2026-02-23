@@ -3,4 +3,5 @@ venv/
 __pycache/
 __pycache__/
 *.pyc
-models/distilbert/
+models/**
+!models/.gitkeep
