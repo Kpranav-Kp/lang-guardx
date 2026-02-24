@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "langguardx"
+version = "0.1.1"
+description = "Adaptive security for LangChain applications"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "K Pranav", email = "pranav2005.kp@example.com" }]
+dependencies = [
+    "langchain>=0.1.0",
+    "sqlglot>=23.0.0",
+    "mmh3>=3.0.0",
+    "bitarray>=2.7.0",
+    "huggingface-hub>=0.20.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "torch>=2.0.0",
+    "transformers>=4.35.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lang_guardx"]
+exclude = ["models/", "training/", "tests/"]

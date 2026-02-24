@@ -3,5 +3,5 @@ venv/
 __pycache/
 __pycache__/
 *.pyc
-models/**
-!models/.gitkeep
+lang_guardx/models/**
+!lang_guardx/models/.gitkeep
