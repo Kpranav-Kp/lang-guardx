@@ -24,6 +24,9 @@ ml = [
     "transformers>=4.35.0",
 ]
 
+[project.scripts]
+langguardx-verify = "lang_guardx.cli:verify"
+
 [tool.hatch.build.targets.wheel]
 packages = ["lang_guardx"]
 exclude = ["models/", "training/", "tests/"]
