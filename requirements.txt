@@ -1,6 +1,9 @@
 bitarray==3.8.0
 huggingface_hub==1.4.1
 langchain==1.2.10
+langchain-community==0.4.1
+langchain-core==1.2.15
+langchain-experimental==0.4.1
 mmh3==5.2.0
 numpy==2.4.2
 pandas==3.0.1
@@ -8,5 +11,7 @@ pydantic==2.12.5
 regex==2026.2.19
 safetensors==0.7.0
 scikit-learn==1.8.0
-sqlglot==28.10.1
+SQLAlchemy==2.0.47
+sqlglot==29.0.1
 torch==2.10.0
+transformers==5.2.0
