@@ -53,6 +53,16 @@ class LangGuardXLayer2:
         self._policy = policy
         self._mode = mode
 
+        # Validate policy inputs
+        if not policy.permitted_tables:
+            raise ValueError("Policy must define permitted_tables.")
+        if not isinstance(policy.restricted_columns, dict):
+            raise ValueError("restricted_columns must be a dictionary.")
+
+        # Log initialization
+        print(f"[LangGuardXLayer2] Initialized in {mode} mode.")
+        print(f"[LangGuardXLayer2] Policy: {policy}")
+
     # ------------------------------------------------------------------
     # Factory class methods
     # ------------------------------------------------------------------

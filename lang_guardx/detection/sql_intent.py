@@ -6,7 +6,7 @@ from transformers import (
     DistilBertForSequenceClassification,
 )
 
-DEFAULT_MODEL_PATH = Path(__file__).parent.parent / "models" / "distilbert"
+DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "distilbert"
 
 LABELS: list[str] = ["SAFE", "DANGEROUS", "INJECTION"]
 

@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 lang_guardx/models/**
 !lang_guardx/models/.gitkeep
+models/distilbert/
+!models/.gitkeep
