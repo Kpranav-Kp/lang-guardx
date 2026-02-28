@@ -1,9 +1,27 @@
 {
-  "total_samples": 2101,
-  "safe": 630,
-  "dangerous": 730,
-  "injection": 741,
-  "kfold_mean_acc": 0.9971,
-  "kfold_std_acc": 0.0011,
-  "final_test_acc": 1.0
+  "version": "v5-colab",
+  "final_test_acc": 0.9789,
+  "final_macro_f1": 0.971,
+  "spot_check": "20/20",
+  "elapsed_minutes": 20.6,
+  "config": {
+    "DRIVE_SAVE_PATH": null,
+    "OFFLINE": false,
+    "SKIP_KFOLD": false,
+    "EPOCHS": 5,
+    "LR": 2e-05,
+    "BATCH_SIZE": 32,
+    "N_FOLDS": 5,
+    "MAX_LEN": 128,
+    "LABEL_SMOOTHING": 0.1,
+    "FOCAL_GAMMA": 2.0,
+    "EARLY_STOP_PAT": 2,
+    "MIN_SAFE": 1200,
+    "MIN_DANGEROUS": 900,
+    "MIN_INJECTION": 900
+  },
+  "kfold_mean_acc": 0.9901,
+  "kfold_std_acc": 0.0018,
+  "kfold_mean_f1": 0.9864,
+  "kfold_std_f1": 0.0022
 }
