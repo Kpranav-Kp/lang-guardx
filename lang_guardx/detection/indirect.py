@@ -7,6 +7,53 @@ from .regex import RegexDetector
 
 PLACEHOLDER = "[CONTENT REDACTED BY LANGGUARDX — INDIRECT INJECTION DETECTED]"
 
+_FIELD_PATTERNS = [
+    (
+        re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE), 
+        "ignore_instructions",
+        "OVERRIDE"
+    ),
+    (
+        re.compile(r"(system|admin)\s*(prompt|override|message)\s*[=:]", re.IGNORECASE), 
+        "system_prompt", 
+        "OVERRIDE"
+    ),
+    (
+        re.compile(r"<\|im_start\|>|<<SYS>>", re.IGNORECASE), 
+        "system_message", 
+        "OVERRIDE"
+    ),
+    (
+        re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE), 
+        "drop_table", 
+        "SQL_COMMAND"
+    ),
+    (
+        re.compile(r"\bSELECT\s+\*\s+FROM\b", re.IGNORECASE), 
+        "bulk_select", 
+        "SQL_COMMAND"
+    ),
+    (
+        re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE), 
+        "bulk_delete", 
+        "SQL_COMMAND"
+    ),
+    (
+        re.compile(r"forget\s+your\s+(instructions?|guidelines?|rules?)", re.IGNORECASE), 
+        "forget_instructions", 
+        "ROLE_CHANGE"
+    ),
+    (
+        re.compile(r"you\s+are\s+now\s+(unrestricted|an?\s+admin|in\s+\w+\s+mode)", re.IGNORECASE), 
+        "unrestricted_mode", 
+        "ROLEPLAY"
+    ),
+    (
+        re.compile(r"(reveal|dump|expose|output)\s+(all\s+)?(password|credential|token|secret)", re.IGNORECASE), 
+        "reveal_credentials", 
+        "OVERRIDE"
+    ),
+]
 
 @dataclass
 class ScanResult:
@@ -15,6 +62,7 @@ class ScanResult:
     sanitized: str
     reason: str = ""
     pattern_name: str = ""
+    category: str = ""
 
 
 class IndirectScanner:
@@ -43,17 +91,7 @@ class IndirectScanner:
         self.regex    = regex_detector
         self.normalize = normalizer_fn or self._basic_normalize
 
-        self._field_patterns = [
-            re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
-            re.compile(r"(system|admin)\s*(prompt|override|message)\s*[=:]", re.IGNORECASE),
-            re.compile(r"<\|im_start\|>|<<SYS>>", re.IGNORECASE),
-            re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE),
-            re.compile(r"\bSELECT\s+\*\s+FROM\b", re.IGNORECASE),
-            re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE),
-            re.compile(r"forget\s+your\s+(instructions?|guidelines?|rules?)", re.IGNORECASE),
-            re.compile(r"you\s+are\s+now\s+(unrestricted|an?\s+admin|in\s+\w+\s+mode)", re.IGNORECASE),
-            re.compile(r"(reveal|dump|expose|output)\s+(all\s+)?(password|credential|token|secret)", re.IGNORECASE),
-        ]
+        self._field_patterns = _FIELD_PATTERNS
 
     def _basic_normalize(self, text: str) -> str:
         """
@@ -95,7 +133,7 @@ class IndirectScanner:
             )
 
         # Step 3 — DB-specific embedded patterns
-        for pattern in self._field_patterns:
+        for pattern, pattern_name, category in self._field_patterns:
             m = pattern.search(normalized)
             if m:
                 return ScanResult(
@@ -103,7 +141,8 @@ class IndirectScanner:
                     original=text,
                     sanitized=PLACEHOLDER,
                     reason="db_field_injection_pattern",
-                    pattern_name=pattern.pattern[:50]
+                    pattern_name=pattern_name,
+                    category=category
                 )
 
         return ScanResult(
