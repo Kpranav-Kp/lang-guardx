@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import math
-import re
-import unicodedata
 import mmh3
 from bitarray import bitarray
 from pathlib import Path
@@ -83,21 +81,6 @@ _DEFAULT_SIGNATURES: list[str] = [
     "earlier you said",
     "your previous self",
 ]
-
-
-def _normalise(text: str) -> str:
-    """
-    Normalise text before inserting into or querying the Bloom filter.
-
-    Steps: NFC unicode → strip zero-width chars → collapse whitespace → lowercase.
-    """
-    text = unicodedata.normalize("NFC", text)
-    text = "".join(
-        ch for ch in text
-        if unicodedata.category(ch) not in ("Cf", "Cc") or ch in (" ", "\t", "\n")
-    )
-    text = re.sub(r"\s+", " ", text).strip().lower()
-    return text
 
 
 class _BloomFilter:
@@ -190,17 +173,16 @@ class BloomDetector:
         """Add phrases + their sliding token windows into the filter."""
         added = 0
         for phrase in phrases:
-            normalised = _normalise(phrase)
-            if not normalised:
-                continue
-            
-            self._filter.add(normalised)
-            tokens = normalised.split()
+            self._filter.add(phrase)      
+            added += 1                   
+            tokens = phrase.split()
+            if len(tokens) < 2:
+                continue                  
             for start in range(len(tokens)):
                 for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
                     window = " ".join(tokens[start : start + length])
                     self._filter.add(window)
-            added += 1
+                added += 1
         self._signature_count += added
         return added
 
@@ -215,11 +197,13 @@ class BloomDetector:
 
     def might_be_attack(self, text: str) -> bool:
         """True if text possibly contains a known attack signature."""
-        normalised = _normalise(text)
-        tokens = normalised.split()
+        tokens = text.split()
 
-        if self._filter.might_contain(normalised):
+        if self._filter.might_contain(text):
             return True
+
+        if len(tokens) < 2:
+            return False
 
         for start in range(len(tokens)):
             for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
