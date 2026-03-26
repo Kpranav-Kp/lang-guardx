@@ -63,6 +63,9 @@ class SQLIntentClassifier:
         Returns:
             (label, confidence) e.g. ("DANGEROUS", 0.991)
         """
+
+        if not text or not text.strip():
+            return ("SAFE", 1.0)
         enc = self.tokenizer(
             text,
             return_tensors="pt",
@@ -98,6 +101,9 @@ class SQLIntentClassifier:
         Run inference on a list of texts efficiently in one forward pass.
         Useful for the indirect scanner which may check multiple DB rows.
         """
+
+        if not texts:
+            return []
         enc = self.tokenizer(
             texts,
             return_tensors="pt",

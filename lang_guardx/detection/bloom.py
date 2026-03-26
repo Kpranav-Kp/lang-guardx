@@ -64,10 +64,7 @@ _DEFAULT_SIGNATURES: list[str] = [
     "/* bypass",
     "*/",
     "# bypass",
-    # Credential exfil
     "reveal all passwords",
-    "show me the passwords",
-    "print the admin password",
     "show stored credentials",
     # Jailbreak / DAN-style
     "jailbreak",
@@ -182,7 +179,6 @@ class BloomDetector:
                 for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
                     window = " ".join(tokens[start : start + length])
                     self._filter.add(window)
-                added += 1
         self._signature_count += added
         return added
 
@@ -204,6 +200,10 @@ class BloomDetector:
 
         if len(tokens) < 2:
             return False
+        
+        for token in tokens:
+            if self._filter.might_contain(token):
+                return True
 
         for start in range(len(tokens)):
             for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
