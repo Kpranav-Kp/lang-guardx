@@ -93,16 +93,19 @@ class SQLPolicyEngine:
         self,
         policy: SQLPolicy,
         current_user_id: Optional[int] = None,
+        dialect: str = "sqlite",
     ) -> None:
         self._policy = policy
         self._user_id = current_user_id
+        self._dialect = dialect
         self._permitted_tables_set = frozenset(t.lower() for t in policy.permitted_tables)
         self._restricted_cols_set = {
-            table.lower(): frozenset(cols.lower() for cols in cols)
+            table.lower(): frozenset(col.lower() for col in cols)
             for table, cols in policy.restricted_columns.items()
         }
         self._all_restricted = frozenset().union(*self._restricted_cols_set.values())
         self._forbidden_ops_set = self._ALL_OPS - frozenset(op.upper() for op in policy.permitted_operations)
+        self._scoped_tables_set = frozenset(t.lower() for t in policy.scoped_tables)
 
 
 
@@ -150,9 +153,9 @@ class SQLPolicyEngine:
         return None
 
 
-    def _step2_parse(self, sql: str, dialect: str = "sqlite") -> tuple[Optional[exp.Expression], Optional[PolicyVerdict]]:
+    def _step2_parse(self, sql: str) -> tuple[Optional[exp.Expression], Optional[PolicyVerdict]]:
         try:
-            tree = parse_one(sql=sql, dialect=dialect)
+            tree = parse_one(sql=sql, dialect=self._dialect)
             return (tree, None)
         except (ParseError, TokenError) as e:
             return (None, PolicyVerdict.blocked(sql, f"Invalid SQL: {e}"))
@@ -213,7 +216,7 @@ class SQLPolicyEngine:
             return (tree, rewritten)
         for node in tree.find_all(exp.Table):
             table_name = node.name.lower()
-            if table_name in (t.lower() for t in self._policy.scoped_tables):
+            if table_name in self._scoped_tables_set:
                 inner = exp.select("*").from_(table_name).where(
                     exp.EQ(
                         this=exp.column("user_id"),
@@ -251,7 +254,7 @@ class SQLPolicyEngine:
         rewritten: bool,
     ) -> PolicyVerdict:
         if rewritten:
-            safe_sql = tree.sql(dialect="sqlite")
+            safe_sql = tree.sql(dialect=self._dialect)
             return PolicyVerdict.rewritten(original_sql, safe_sql)
     
         return PolicyVerdict.passed(original_sql)
