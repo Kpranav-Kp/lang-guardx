@@ -9,5 +9,5 @@ models/distilbert/
 !models/.gitkeep
 
 .pytest_cache/
-.env/
+.env
 .env.*
