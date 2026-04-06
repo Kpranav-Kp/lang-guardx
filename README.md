@@ -1,4 +1,4 @@
-Adaptive security for LangChain applications defending against 
+Adaptive security for LangChain applications defending against
 prompt injection and P2SQL attacks.
 
 ## Install

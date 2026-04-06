@@ -1,19 +1,19 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
-
 
 # Dataclass representing the SQL policy configuration.
 
+
 @dataclass
 class SQLPolicy:
-    permitted_operations : list[str] 
-    permitted_tables : list[str]
+    permitted_operations: list[str]
+    permitted_tables: list[str]
     restricted_columns: dict[str, list[str]] = field(default_factory=dict)
     scoped_tables: list[str] = field(default_factory=list)
-    require_user_scope : bool = False
-    max_rows : int = 1000
+    require_user_scope: bool = False
+    max_rows: int = 1000
 
     @classmethod
     def from_dict(cls, d: dict) -> SQLPolicy:
@@ -30,7 +30,7 @@ class SQLPolicy:
             raise ValueError("'permitted_tables' must be a list of strings.")
         if "restricted_columns" not in d:
             raise ValueError("Policy must include 'restricted_columns' field (can't be empty dict).")
-        
+
         return cls(
             permitted_operations=ops,
             permitted_tables=tables,
@@ -39,7 +39,7 @@ class SQLPolicy:
             require_user_scope=d.get("require_user_scope", False),
             max_rows=d.get("max_rows", 1000),
         )
-    
+
 
 class Verdict(Enum):
     PASSED = "PASSED"
@@ -49,13 +49,13 @@ class Verdict(Enum):
 
 @dataclass
 class PolicyVerdict:
-    verdict : Verdict
-    original_sql : str
-    safe_sql : Optional[str]
-    violations : list[str]
+    verdict: Verdict
+    original_sql: str
+    safe_sql: str | None
+    violations: list[str]
 
     @classmethod
-    def passed(cls, original_sql : str) -> PolicyVerdict:
+    def passed(cls, original_sql: str) -> PolicyVerdict:
         return cls(
             verdict=Verdict.PASSED,
             original_sql=original_sql,
@@ -64,7 +64,7 @@ class PolicyVerdict:
         )
 
     @classmethod
-    def rewritten(cls, original_sql : str, safe_sql : str) -> PolicyVerdict:
+    def rewritten(cls, original_sql: str, safe_sql: str) -> PolicyVerdict:
         return cls(
             verdict=Verdict.REWRITTEN,
             original_sql=original_sql,
@@ -73,7 +73,7 @@ class PolicyVerdict:
         )
 
     @classmethod
-    def blocked(cls, original_sql : str, reason : str) -> PolicyVerdict:
+    def blocked(cls, original_sql: str, reason: str) -> PolicyVerdict:
         return cls(
             verdict=Verdict.BLOCKED,
             original_sql=original_sql,

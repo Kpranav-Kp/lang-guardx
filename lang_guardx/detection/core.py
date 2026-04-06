@@ -1,18 +1,17 @@
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from .bloom import BloomDetector
+from .indirect import IndirectScanner
 from .regex import RegexDetector
 from .sql_intent import SQLIntentClassifier
-from .indirect import IndirectScanner
 
 
 @dataclass
 class DetectionResult:
     blocked: bool
-    reason: str = ""         # which stage blocked it
-    detail: str = ""         # pattern name, model label, etc.
+    reason: str = ""  # which stage blocked it
+    detail: str = ""  # pattern name, model label, etc.
     confidence: float = 0.0  # only set when DistilBERT fires
 
 
@@ -31,22 +30,19 @@ class Detector:
 
     def __init__(
         self,
-        model_path: Optional[str] = None,
+        model_path: str | None = None,
         distilbert_threshold: float = 0.75,
-        bloom_corpus_path: Optional[str] = None,
+        bloom_corpus_path: str | None = None,
     ):
         self.bloom = BloomDetector.with_defaults()
         if bloom_corpus_path:
             self.bloom.load_corpus_from_file(bloom_corpus_path)
-        self.regex    = RegexDetector()
-        self.bert     = SQLIntentClassifier(
-            model_path=model_path,
-            threshold=distilbert_threshold
-        )
-        self.scanner  = IndirectScanner(
+        self.regex = RegexDetector()
+        self.bert = SQLIntentClassifier(model_path=model_path, threshold=distilbert_threshold)
+        self.scanner = IndirectScanner(
             bloom_detector=self.bloom,
             regex_detector=self.regex,
-            normalizer_fn=_normalize
+            normalizer_fn=_normalize,
         )
 
     def check(self, text: str) -> DetectionResult:
@@ -66,7 +62,7 @@ class Detector:
             return DetectionResult(
                 blocked=True,
                 reason="bloom_filter",
-                detail="known injection signature matched"
+                detail="known injection signature matched",
             )
 
         # Step 3 — Regex
@@ -75,18 +71,13 @@ class Detector:
             return DetectionResult(
                 blocked=True,
                 reason="regex_detector",
-                detail=f"{regex_match.pattern_name} [{regex_match.category}]"
+                detail=f"{regex_match.pattern_name} [{regex_match.category}]",
             )
 
         # Step 4 — DistilBERT (only runs if steps 2 and 3 pass)
         label, confidence = self.bert.predict(normalized)
         if label != "SAFE" and confidence >= self.bert.threshold:
-            return DetectionResult(
-                blocked=True,
-                reason="distilbert",
-                detail=label,
-                confidence=confidence
-            )
+            return DetectionResult(blocked=True, reason="distilbert", detail=label, confidence=confidence)
 
         return DetectionResult(blocked=False)
 

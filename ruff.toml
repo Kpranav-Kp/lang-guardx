@@ -1,6 +1,6 @@
 target-version = "py311"
 src = ["core", "repoinsight"]
-line-length = 88
+line-length = 200
 exclude = [
     ".git",
     "__pycache__",

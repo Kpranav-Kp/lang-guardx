@@ -1,13 +1,14 @@
-from .policy import SQLPolicy, PolicyVerdict, Verdict
 from .engine import SQLPolicyEngine
+from .policy import PolicyVerdict, SQLPolicy, Verdict
 
 try:
-    from .adapter import ProtectedSQLAgent, AgentTrace, StepTrace
+    from .adapter import AgentTrace, ProtectedSQLAgent, StepTrace
+
     _LANGCHAIN_AVAILABLE = True
 except ImportError:
-    ProtectedSQLAgent = None  
-    AgentTrace = None          
-    StepTrace = None           
+    ProtectedSQLAgent = None
+    AgentTrace = None
+    StepTrace = None
     _LANGCHAIN_AVAILABLE = False
 
 __all__ = [

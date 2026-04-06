@@ -1,59 +1,58 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
+
 from .bloom import BloomDetector
 from .regex import RegexDetector
-
 
 PLACEHOLDER = "[CONTENT REDACTED BY LANGGUARDX — INDIRECT INJECTION DETECTED]"
 
 _FIELD_PATTERNS = [
     (
-        re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE), 
+        re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
         "ignore_instructions",
-        "OVERRIDE"
+        "OVERRIDE",
     ),
     (
-        re.compile(r"(system|admin)\s*(prompt|override|message)\s*[=:]", re.IGNORECASE), 
-        "system_prompt", 
-        "OVERRIDE"
+        re.compile(r"(system|admin)\s*(prompt|override|message)\s*[=:]", re.IGNORECASE),
+        "system_prompt",
+        "OVERRIDE",
     ),
     (
-        re.compile(r"<\|im_start\|>|<<SYS>>", re.IGNORECASE), 
-        "system_message", 
-        "OVERRIDE"
+        re.compile(r"<\|im_start\|>|<<SYS>>", re.IGNORECASE),
+        "system_message",
+        "OVERRIDE",
+    ),
+    (re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE), "drop_table", "SQL_COMMAND"),
+    (
+        re.compile(r"\bSELECT\s+\*\s+FROM\b", re.IGNORECASE),
+        "bulk_select",
+        "SQL_COMMAND",
+    ),
+    (re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE), "bulk_delete", "SQL_COMMAND"),
+    (
+        re.compile(r"forget\s+your\s+(instructions?|guidelines?|rules?)", re.IGNORECASE),
+        "forget_instructions",
+        "ROLE_CHANGE",
     ),
     (
-        re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE), 
-        "drop_table", 
-        "SQL_COMMAND"
+        re.compile(
+            r"you\s+are\s+now\s+(unrestricted|an?\s+admin|in\s+\w+\s+mode)",
+            re.IGNORECASE,
+        ),
+        "unrestricted_mode",
+        "ROLEPLAY",
     ),
     (
-        re.compile(r"\bSELECT\s+\*\s+FROM\b", re.IGNORECASE), 
-        "bulk_select", 
-        "SQL_COMMAND"
-    ),
-    (
-        re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE), 
-        "bulk_delete", 
-        "SQL_COMMAND"
-    ),
-    (
-        re.compile(r"forget\s+your\s+(instructions?|guidelines?|rules?)", re.IGNORECASE), 
-        "forget_instructions", 
-        "ROLE_CHANGE"
-    ),
-    (
-        re.compile(r"you\s+are\s+now\s+(unrestricted|an?\s+admin|in\s+\w+\s+mode)", re.IGNORECASE), 
-        "unrestricted_mode", 
-        "ROLEPLAY"
-    ),
-    (
-        re.compile(r"(reveal|dump|expose|output)\s+(all\s+)?(password|credential|token|secret)", re.IGNORECASE), 
-        "reveal_credentials", 
-        "OVERRIDE"
+        re.compile(
+            r"(reveal|dump|expose|output)\s+(all\s+)?(password|credential|token|secret)",
+            re.IGNORECASE,
+        ),
+        "reveal_credentials",
+        "OVERRIDE",
     ),
 ]
+
 
 @dataclass
 class ScanResult:
@@ -75,11 +74,11 @@ class IndirectScanner:
     """
 
     def __init__(
-            self,
-            bloom_detector: BloomDetector,
-            regex_detector: RegexDetector,
-            normalizer_fn: Optional[Callable[[str], str]] = None,
-        ):
+        self,
+        bloom_detector: BloomDetector,
+        regex_detector: RegexDetector,
+        normalizer_fn: Callable[[str], str] | None = None,
+    ):
         """
         Args:
             bloom_detector  : Instance of BloomDetector from bloom.py
@@ -87,8 +86,8 @@ class IndirectScanner:
             normalizer_fn   : Optional text normalization function.
                               If None, uses internal basic normalizer.
         """
-        self.bloom    = bloom_detector
-        self.regex    = regex_detector
+        self.bloom = bloom_detector
+        self.regex = regex_detector
         self.normalize = normalizer_fn or self._basic_normalize
 
         self._field_patterns = _FIELD_PATTERNS
@@ -118,7 +117,7 @@ class IndirectScanner:
                 original=text,
                 sanitized=PLACEHOLDER,
                 reason="bloom_filter_hit",
-                pattern_name="bloom"
+                pattern_name="bloom",
             )
 
         # Step 2 — Regex detector (full pattern set)
@@ -129,7 +128,7 @@ class IndirectScanner:
                 original=text,
                 sanitized=PLACEHOLDER,
                 reason=f"regex_match:{regex_match.category}",
-                pattern_name=regex_match.pattern_name
+                pattern_name=regex_match.pattern_name,
             )
 
         # Step 3 — DB-specific embedded patterns
@@ -142,15 +141,10 @@ class IndirectScanner:
                     sanitized=PLACEHOLDER,
                     reason="db_field_injection_pattern",
                     pattern_name=pattern_name,
-                    category=category
+                    category=category,
                 )
 
-        return ScanResult(
-            flagged=False,
-            original=text,
-            sanitized=text,
-            reason=""
-        )
+        return ScanResult(flagged=False, original=text, sanitized=text, reason="")
 
     def scan(self, db_rows: list[dict]) -> tuple[list[dict], list[ScanResult]]:
         """

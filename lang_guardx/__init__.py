@@ -1,9 +1,9 @@
 # lang_guardx/__init__.py
-from .detection.core import Detector, DetectionResult
-from .agent import SQLPolicy, PolicyVerdict, Verdict, SQLPolicyEngine
+from .agent import PolicyVerdict, SQLPolicy, SQLPolicyEngine, Verdict
+from .detection.core import DetectionResult, Detector
 
 try:
-    from .agent import ProtectedSQLAgent, AgentTrace, StepTrace
+    from .agent import AgentTrace, ProtectedSQLAgent, StepTrace
 except ImportError:
     pass
 

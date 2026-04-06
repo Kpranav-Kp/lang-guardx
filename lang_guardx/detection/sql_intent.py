@@ -1,9 +1,9 @@
-import torch
 from pathlib import Path
-from typing import Optional
+
+import torch
 from transformers import (
-    DistilBertTokenizerFast,
     DistilBertForSequenceClassification,
+    DistilBertTokenizerFast,
 )
 
 DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "distilbert"
@@ -19,7 +19,7 @@ class SQLIntentClassifier:
 
     def __init__(
         self,
-        model_path: Optional[str] = None,  
+        model_path: str | None = None,
         threshold: float = 0.75,
     ):
         """
@@ -31,27 +31,21 @@ class SQLIntentClassifier:
                          leans toward a threat class. Default 0.75.
         """
         self.threshold = threshold
-        self.device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
 
         if not path.exists():
             from huggingface_hub import snapshot_download
-            snapshot_download(
-                repo_id="KPranavKp/langguardx-distilbert",
-                local_dir=str(path)
-            )
+
+            snapshot_download(repo_id="KPranavKp/langguardx-distilbert", local_dir=str(path))
 
         # Load tokenizer and model from local safetensors
-        self.tokenizer: DistilBertTokenizerFast = (
-            DistilBertTokenizerFast.from_pretrained(str(path))
-        )
+        self.tokenizer: DistilBertTokenizerFast = DistilBertTokenizerFast.from_pretrained(str(path))
 
-        self.model: DistilBertForSequenceClassification = (
-            DistilBertForSequenceClassification.from_pretrained(
-                str(path),
-                local_files_only=True,
-            )
+        self.model: DistilBertForSequenceClassification = DistilBertForSequenceClassification.from_pretrained(
+            str(path),
+            local_files_only=True,
         )
         self.model = self.model.to(self.device)  # type: ignore[assignment]
         self.model.eval()
@@ -73,16 +67,16 @@ class SQLIntentClassifier:
             padding=True,
             max_length=128,
         )
-        
+
         enc = {k: v.to(self.device) for k, v in enc.items()}
 
         with torch.no_grad():
             logits: torch.Tensor = self.model(**enc).logits
 
         probs: torch.Tensor = torch.softmax(logits, dim=1)[0]
-        pred_idx: int  = int(torch.argmax(probs).item())
+        pred_idx: int = int(torch.argmax(probs).item())
         confidence: float = float(round(float(probs[pred_idx].item()), 4))
-        label: str    = LABELS[pred_idx]
+        label: str = LABELS[pred_idx]
 
         return label, confidence
 
@@ -116,12 +110,12 @@ class SQLIntentClassifier:
         with torch.no_grad():
             logits: torch.Tensor = self.model(**enc).logits
 
-        probs: torch.Tensor    = torch.softmax(logits, dim=1)
+        probs: torch.Tensor = torch.softmax(logits, dim=1)
         pred_idx: torch.Tensor = torch.argmax(probs, dim=1)
 
         results: list[tuple[str, float]] = []
         for i in range(len(texts)):
-            idx: int    = int(pred_idx[i].item())
+            idx: int = int(pred_idx[i].item())
             conf: float = float(round(float(probs[i][idx].item()), 4))
             results.append((LABELS[idx], conf))
 

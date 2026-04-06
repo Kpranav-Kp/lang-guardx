@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Iterable
+from pathlib import Path
+
 import mmh3
 from bitarray import bitarray
-from pathlib import Path
-from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +91,14 @@ class _BloomFilter:
     """
 
     def __init__(self, capacity: int = 10_000, false_positive_rate: float = 0.01) -> None:
-        self._m: int = max(1, math.ceil(
-            -(capacity * math.log(false_positive_rate)) / (math.log(2) ** 2)
-        ))
+        self._m: int = max(
+            1,
+            math.ceil(-(capacity * math.log(false_positive_rate)) / (math.log(2) ** 2)),
+        )
         self._k: int = max(1, round((self._m / capacity) * math.log(2)))
 
-        
         self._bits: bitarray = bitarray(self._m)
-        self._bits.setall(0)   
+        self._bits.setall(0)
 
         self._count: int = 0
 
@@ -122,7 +123,7 @@ class _BloomFilter:
         item : str
             Already-normalised string to insert.
         """
-        
+
         pos = self._bit_indices(item)
         for i in pos:
             self._bits[i] = 1
@@ -161,7 +162,7 @@ class BloomDetector:
         self._signature_count: int = 0
 
     @classmethod
-    def with_defaults(cls) -> "BloomDetector":
+    def with_defaults(cls) -> BloomDetector:
         bd = cls()
         bd.load_corpus(_DEFAULT_SIGNATURES)
         return bd
@@ -170,11 +171,11 @@ class BloomDetector:
         """Add phrases + their sliding token windows into the filter."""
         added = 0
         for phrase in phrases:
-            self._filter.add(phrase)      
-            added += 1                   
+            self._filter.add(phrase)
+            added += 1
             tokens = phrase.split()
             if len(tokens) < 2:
-                continue                  
+                continue
             for start in range(len(tokens)):
                 for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
                     window = " ".join(tokens[start : start + length])
@@ -184,11 +185,7 @@ class BloomDetector:
 
     def load_corpus_from_file(self, path: str | Path) -> int:
         """Load signatures from a text file (one phrase per line, # = comment)."""
-        lines = (
-            line.strip()
-            for line in Path(path).read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.startswith("#")
-        )
+        lines = (line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#"))
         return self.load_corpus(lines)
 
     def might_be_attack(self, text: str) -> bool:
@@ -200,7 +197,7 @@ class BloomDetector:
 
         if len(tokens) < 2:
             return False
-        
+
         for token in tokens:
             if self._filter.might_contain(token):
                 return True
@@ -218,7 +215,4 @@ class BloomDetector:
         return self._signature_count
 
     def __repr__(self) -> str:
-        return (
-            f"BloomDetector(signatures={self._signature_count}, "
-            f"bits={self._filter._m:,}, k={self._filter._k})"
-        )
+        return f"BloomDetector(signatures={self._signature_count}, bits={self._filter._m:,}, k={self._filter._k})"

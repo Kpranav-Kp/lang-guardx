@@ -17,26 +17,28 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
-from langchain_core.runnables import RunnableConfig
-from langchain_core.language_models import BaseChatModel
-from langchain_core.callbacks import BaseCallbackHandler
-from langchain_community.utilities import SQLDatabase
-from langchain_community.agent_toolkits import SQLDatabaseToolkit
-from langchain.agents import create_agent
+from typing import Any
 
-from .policy import Verdict, PolicyVerdict
+from langchain.agents import create_agent
+from langchain_community.agent_toolkits import SQLDatabaseToolkit
+from langchain_community.utilities import SQLDatabase
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
+
 from .engine import SQLPolicyEngine
+from .policy import PolicyVerdict, Verdict
 
 
 @dataclass
 class StepTrace:
     """One tool call in the agent reasoning loop."""
+
     step_index: int
     tool_name: str
     tool_input: str
     tool_output: str
-    policy_verdict: Optional[PolicyVerdict] = None  
+    policy_verdict: PolicyVerdict | None = None
     blocked: bool = False
     latency_ms: float = 0.0
 
@@ -54,11 +56,12 @@ class AgentTrace:
       rewrite_count    -> queries REWRITTEN (LIMIT added, user scope injected)
       exfiltration_flag -> RI.2 heuristic: DB tool followed by network tool
     """
+
     question: str
     steps: list[StepTrace] = field(default_factory=list)
-    final_answer: Optional[str] = None
-    blocked_at_step: Optional[int] = None
-    block_reason: Optional[str] = None
+    final_answer: str | None = None
+    blocked_at_step: int | None = None
+    block_reason: str | None = None
     exfiltration_flag: bool = False
     policy_hit_count: int = 0
     block_count: int = 0
@@ -79,12 +82,18 @@ class AgentTrace:
 
 _DB_TOOL_KEYWORDS = {"sql", "query", "database", "db"}
 _NETWORK_TOOL_KEYWORDS = {
-    "requests_get", "requests_post", "http", "web",
-    "send_email", "file_write", "upload", "search",
+    "requests_get",
+    "requests_post",
+    "http",
+    "web",
+    "send_email",
+    "file_write",
+    "upload",
+    "search",
 }
 
 
-def _check_tool_sequence(steps: list[StepTrace]) -> Optional[str]:
+def _check_tool_sequence(steps: list[StepTrace]) -> str | None:
     """
     Detect RI.2 pattern: DB/SQL tool immediately followed by network/write tool.
     Heuristic — logs suspicious sequences, not confirmed attacks.
@@ -93,15 +102,9 @@ def _check_tool_sequence(steps: list[StepTrace]) -> Optional[str]:
     names = [s.tool_name.lower() for s in steps]
     for i in range(len(names) - 1):
         is_db = any(kw in names[i] for kw in _DB_TOOL_KEYWORDS)
-        is_net = names[i + 1] in _NETWORK_TOOL_KEYWORDS or any(
-            kw in names[i + 1]
-            for kw in ("email", "post", "send", "write", "upload", "http")
-        )
+        is_net = names[i + 1] in _NETWORK_TOOL_KEYWORDS or any(kw in names[i + 1] for kw in ("email", "post", "send", "write", "upload", "http"))
         if is_db and is_net:
-            return (
-                f"Potential RI.2 exfiltration: "
-                f"'{names[i]}' -> '{names[i+1]}'"
-            )
+            return f"Potential RI.2 exfiltration: '{names[i]}' -> '{names[i + 1]}'"
     return None
 
 
@@ -123,7 +126,7 @@ class _PolicyEnforcedDatabase(SQLDatabase):
 
     def run(self, command: str, *args, **kwargs) -> str:
         guard: SQLPolicyEngine = object.__getattribute__(self, "_guard")
-        trace: Optional[AgentTrace] = object.__getattribute__(self, "_trace")
+        trace: AgentTrace | None = object.__getattribute__(self, "_trace")
 
         verdict = guard.validate(command)
         object.__setattr__(self, "_last_verdict", verdict)
@@ -144,7 +147,7 @@ class _PolicyEnforcedDatabase(SQLDatabase):
         return getattr(object.__getattribute__(self, "_db"), name)
 
     @property
-    def last_verdict(self) -> Optional[PolicyVerdict]:
+    def last_verdict(self) -> PolicyVerdict | None:
         return object.__getattribute__(self, "_last_verdict")
 
 
@@ -189,9 +192,7 @@ class ProtectedSQLAgent:
         toolkit = SQLDatabaseToolkit(db=self._protected_db, llm=llm)
         all_tools = toolkit.get_tools()
 
-        self._tools = [
-            t for t in all_tools if t.name != "sql_db_query_checker"
-        ]
+        self._tools = [t for t in all_tools if t.name != "sql_db_query_checker"]
 
         system_prompt = _SYSTEM_PROMPT.format(
             dialect=db.dialect,
@@ -253,11 +254,9 @@ class _TraceCallback(BaseCallbackHandler):
         self._db = db
         self._step_start = 0.0
         self._step_index = 0
-        self._pending: Optional[StepTrace] = None
+        self._pending: StepTrace | None = None
 
-    def on_tool_start(
-        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
-    ) -> None:
+    def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:
         self._step_start = time.monotonic()
         self._pending = StepTrace(
             step_index=self._step_index,
@@ -286,12 +285,29 @@ class _TraceCallback(BaseCallbackHandler):
         self._pending = None
 
     # Stub out remaining callback methods — duck-typing requires them present
-    def on_llm_start(self, *a: Any, **kw: Any) -> None: pass
-    def on_llm_end(self, *a: Any, **kw: Any) -> None: pass
-    def on_llm_error(self, *a: Any, **kw: Any) -> None: pass
-    def on_tool_error(self, *a: Any, **kw: Any) -> None: pass
-    def on_chain_start(self, *a: Any, **kw: Any) -> None: pass
-    def on_chain_end(self, *a: Any, **kw: Any) -> None: pass
-    def on_chain_error(self, *a: Any, **kw: Any) -> None: pass
-    def on_agent_action(self, *a: Any, **kw: Any) -> None: pass
-    def on_agent_finish(self, *a: Any, **kw: Any) -> None: pass
+    def on_llm_start(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_llm_end(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_llm_error(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_tool_error(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_chain_start(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_chain_end(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_chain_error(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_agent_action(self, *a: Any, **kw: Any) -> None:
+        pass
+
+    def on_agent_finish(self, *a: Any, **kw: Any) -> None:
+        pass
