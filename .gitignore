@@ -11,3 +11,4 @@ models/distilbert/
 .pytest_cache/
 .env
 .env.*
+.db
