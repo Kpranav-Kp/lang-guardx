@@ -11,6 +11,9 @@ exclude = [
     ".venv",
     "build",
     "dist",
+    "training",
+    "scripts",
+    "lang_guardx/models",
 ]
 
 [lint]
@@ -21,7 +24,6 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/*.py" = ["S101"]
-"scripts/*.py" = ["T201"]
 
 [lint.isort]
 known-first-party = ["lang_guardx"]
