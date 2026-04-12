@@ -80,7 +80,8 @@ class AgentTrace:
             f"hits={self.policy_hit_count} | "
             f"blocked={self.block_count} | "
             f"rewritten={self.rewrite_count} | "
-            f"exfil={self.exfiltration_flag}"
+            f"exfil={self.exfiltration_flag} | "
+            f"layer3={self.layer3_hits}"
         )
 
 
