@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langguardx"
-version = "0.1.2"
+version = "0.2.0"
 description = "Adaptive multi-layer security middleware for LangChain SQL agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,6 +26,7 @@ ml = [
 ]
 langchain = [
     "langchain>=0.1.0",
+    "langchain-core>=0.1.0",
     "langchain-community>=0.0.1",
     "SQLAlchemy>=2.0.0",
 ]

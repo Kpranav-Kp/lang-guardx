@@ -26,6 +26,8 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
+from lang_guardx.detection.core import Detector
+
 from .engine import SQLPolicyEngine
 from .policy import PolicyVerdict, Verdict
 
@@ -41,6 +43,7 @@ class StepTrace:
     policy_verdict: PolicyVerdict | None = None
     blocked: bool = False
     latency_ms: float = 0.0
+    layer3_flagged: bool = False
 
 
 @dataclass
@@ -67,6 +70,7 @@ class AgentTrace:
     block_count: int = 0
     rewrite_count: int = 0
     total_latency_ms: float = 0.0
+    layer3_hits: int = 0
 
     def summary(self) -> str:
         """One-line summary for smoke test output."""
@@ -193,6 +197,7 @@ class ProtectedSQLAgent:
         all_tools = toolkit.get_tools()
 
         self._tools = [t for t in all_tools if t.name != "sql_db_query_checker"]
+        self._detector = Detector()
 
         system_prompt = _SYSTEM_PROMPT.format(
             dialect=db.dialect,
@@ -212,7 +217,7 @@ class ProtectedSQLAgent:
         """
         trace = AgentTrace(question=question)
         self._protected_db._set_trace(trace)
-        cb = _TraceCallback(trace, self._protected_db)
+        cb = _TraceCallback(trace, self._protected_db, self._detector)
 
         start = time.monotonic()
         try:
@@ -248,10 +253,11 @@ class _TraceCallback(BaseCallbackHandler):
     Inherits from BaseCallbackHandler to satisfy RunnableConfig type requirements.
     """
 
-    def __init__(self, trace: AgentTrace, db: _PolicyEnforcedDatabase):
+    def __init__(self, trace: AgentTrace, db: _PolicyEnforcedDatabase, detector: Detector) -> None:
         super().__init__()
         self._trace = trace
         self._db = db
+        self._detector = detector
         self._step_start = 0.0
         self._step_index = 0
         self._pending: StepTrace | None = None
@@ -280,11 +286,20 @@ class _TraceCallback(BaseCallbackHandler):
                 self._trace.blocked_at_step = step.step_index
                 self._trace.block_reason = "; ".join(verdict.violations)
 
+            if not step.blocked:
+                try:
+                    sanitized_list, flags = self._detector.scan_db_strings([output])
+                    if flags:
+                        step.tool_output = sanitized_list[0]
+                        step.layer3_flagged = True
+                        self._trace.layer3_hits += 1
+                except Exception as e:
+                    print(f"[Layer 3 warning] Scanner failed: {e}")
+
         self._trace.steps.append(step)
         self._step_index += 1
         self._pending = None
 
-    # Stub out remaining callback methods — duck-typing requires them present
     def on_llm_start(self, *a: Any, **kw: Any) -> None:
         pass
 
