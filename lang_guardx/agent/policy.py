@@ -28,8 +28,6 @@ class SQLPolicy:
         tables = d["permitted_tables"]
         if not isinstance(tables, list) or not all(isinstance(t, str) for t in tables):
             raise ValueError("'permitted_tables' must be a list of strings.")
-        if "restricted_columns" not in d:
-            raise ValueError("Policy must include 'restricted_columns' field (can't be empty dict).")
 
         return cls(
             permitted_operations=ops,
