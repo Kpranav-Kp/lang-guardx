@@ -2,15 +2,7 @@
 lang_guardx/agent/adapter.py
 
 Layer 2 — LangChain Adapter.
-THIS IS THE ONLY FILE IN LAYER 2 THAT IMPORTS LANGCHAIN.
-
-Latency improvement: sql_db_query_checker removed from tool list.
-It adds one full LLM round trip per query and is redundant —
-SQLPolicyEngine already validates all SQL before execution.
-
-Trace: every run() returns (answer, AgentTrace).
-AgentTrace records per-step verdicts, latency, block/rewrite counts,
-and exfiltration flag for thesis metrics (RQ2 coverage, latency overhead).
+...
 """
 
 from __future__ import annotations
@@ -48,17 +40,7 @@ class StepTrace:
 
 @dataclass
 class AgentTrace:
-    """
-    Full execution trace for one agent.run() call.
-
-    Thesis metric fields:
-      steps            -> per-step verdicts (RQ2: P2SQL attack coverage)
-      total_latency_ms -> end-to-end wall time (latency overhead vs PromptGuard 7.2%)
-      policy_hit_count -> SQL queries intercepted by engine
-      block_count      -> queries BLOCKED by policy
-      rewrite_count    -> queries REWRITTEN (LIMIT added, user scope injected)
-      exfiltration_flag -> RI.2 heuristic: DB tool followed by network tool
-    """
+    """Full execution trace for one agent.run() call."""
 
     question: str
     steps: list[StepTrace] = field(default_factory=list)
@@ -73,7 +55,6 @@ class AgentTrace:
     layer3_hits: int = 0
 
     def summary(self) -> str:
-        """One-line summary for smoke test output."""
         return (
             f"latency={self.total_latency_ms:.1f}ms | "
             f"steps={len(self.steps)} | "
@@ -99,11 +80,6 @@ _NETWORK_TOOL_KEYWORDS = {
 
 
 def _check_tool_sequence(steps: list[StepTrace]) -> str | None:
-    """
-    Detect RI.2 pattern: DB/SQL tool immediately followed by network/write tool.
-    Heuristic — logs suspicious sequences, not confirmed attacks.
-    Returns reason string if detected, None otherwise.
-    """
     names = [s.tool_name.lower() for s in steps]
     for i in range(len(names) - 1):
         is_db = any(kw in names[i] for kw in _DB_TOOL_KEYWORDS)
@@ -114,19 +90,13 @@ def _check_tool_sequence(steps: list[StepTrace]) -> str | None:
 
 
 class _PolicyEnforcedDatabase(SQLDatabase):
-    """
-    Wraps SQLDatabase so every db.run() passes through SQLPolicyEngine.
-    Inherits SQLDatabase only to satisfy toolkit type checks.
-    All real SQLDatabase state is on the wrapped _db, delegated via __getattr__.
-    """
-
     def __init__(self, db: SQLDatabase, engine: SQLPolicyEngine):
         object.__setattr__(self, "_db", db)
         object.__setattr__(self, "_guard", engine)
         object.__setattr__(self, "_last_verdict", None)
         object.__setattr__(self, "_trace", None)
 
-    def _set_trace(self, trace: AgentTrace) -> None:
+    def _set_trace(self, trace: AgentTrace | None) -> None:
         object.__setattr__(self, "_trace", trace)
 
     def run(self, command: str, *args, **kwargs) -> str:
@@ -157,34 +127,15 @@ class _PolicyEnforcedDatabase(SQLDatabase):
 
 
 _SYSTEM_PROMPT = """\
-You are an agent designed to interact with a SQL database.
-Given an input question, create a syntactically correct {dialect} query to run,
-then look at the results and return the answer.
-
-Rules:
-- Always look at the available tables first.
-- Never query all columns — only ask for relevant columns.
-- Limit results to at most {top_k} rows unless the user specifies otherwise.
-- If a query is blocked by policy, tell the user clearly. Do NOT retry.
+You are a SQL agent for {dialect} database.
+- Use sql_db_list_tables first.
+- Never use SELECT *.
+- Limit to {top_k} rows.
+- If a query is blocked, say so and stop.
 """
 
 
 class ProtectedSQLAgent:
-    """
-    LangChain SQL agent with Layer 2 policy enforcement at the DB boundary.
-
-    Latency improvement over naive agent:
-      - sql_db_query_checker removed (saves 1 LLM call per query, ~500ms-2s)
-      - SQLPolicyEngine validates SQL in <2ms, replaces checker entirely
-
-    Usage:
-        policy = SQLPolicy(permitted_tables=["products"], max_rows=50)
-        engine = SQLPolicyEngine(policy)
-        agent  = ProtectedSQLAgent(llm=llm, db=db, engine=engine)
-        answer, trace = agent.run("How many products?")
-        print(trace.summary())
-    """
-
     def __init__(
         self,
         llm: BaseChatModel,
@@ -193,18 +144,11 @@ class ProtectedSQLAgent:
         top_k: int = 10,
     ) -> None:
         self._protected_db = _PolicyEnforcedDatabase(db, engine)
-
         toolkit = SQLDatabaseToolkit(db=self._protected_db, llm=llm)
         all_tools = toolkit.get_tools()
-
         self._tools = [t for t in all_tools if t.name != "sql_db_query_checker"]
         self._detector = Detector()
-
-        system_prompt = _SYSTEM_PROMPT.format(
-            dialect=db.dialect,
-            top_k=top_k,
-        )
-
+        system_prompt = _SYSTEM_PROMPT.format(dialect=db.dialect, top_k=top_k)
         self._agent = create_agent(
             model=llm,
             tools=self._tools,
@@ -212,10 +156,7 @@ class ProtectedSQLAgent:
         )
 
     def run(self, question: str) -> tuple[str, AgentTrace]:
-        """
-        Run the agent. Returns (answer, AgentTrace).
-        AgentTrace.summary() gives a one-line metric string for smoke tests.
-        """
+        self._protected_db._set_trace(None)
         trace = AgentTrace(question=question)
         self._protected_db._set_trace(trace)
         cb = _TraceCallback(trace, self._protected_db, self._detector)
@@ -249,11 +190,6 @@ class ProtectedSQLAgent:
 
 
 class _TraceCallback(BaseCallbackHandler):
-    """
-    Records tool invocations into AgentTrace.
-    Inherits from BaseCallbackHandler to satisfy RunnableConfig type requirements.
-    """
-
     def __init__(self, trace: AgentTrace, db: _PolicyEnforcedDatabase, detector: Detector) -> None:
         super().__init__()
         self._trace = trace
@@ -272,11 +208,20 @@ class _TraceCallback(BaseCallbackHandler):
             tool_output="",
         )
 
-    def on_tool_end(self, output: str, **kwargs: Any) -> None:
+    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         if self._pending is None:
             return
         step = self._pending
-        step.tool_output = output
+
+        # Normalize output to string
+        if hasattr(output, "content"):
+            output_str = output.content
+        elif not isinstance(output, str):
+            output_str = str(output)
+        else:
+            output_str = output
+
+        step.tool_output = output_str
         step.latency_ms = (time.monotonic() - self._step_start) * 1000
 
         if step.tool_name == "sql_db_query":
@@ -289,7 +234,7 @@ class _TraceCallback(BaseCallbackHandler):
 
             if not step.blocked:
                 try:
-                    sanitized_list, flags = self._detector.scan_db_strings([output])
+                    sanitized_list, flags = self._detector.scan_db_strings([output_str])
                     if flags:
                         step.tool_output = sanitized_list[0]
                         step.layer3_flagged = True
@@ -300,30 +245,3 @@ class _TraceCallback(BaseCallbackHandler):
         self._trace.steps.append(step)
         self._step_index += 1
         self._pending = None
-
-    def on_llm_start(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_llm_end(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_llm_error(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_tool_error(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_chain_start(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_chain_end(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_chain_error(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_agent_action(self, *a: Any, **kw: Any) -> None:
-        pass
-
-    def on_agent_finish(self, *a: Any, **kw: Any) -> None:
-        pass
