@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import torch
+from optimum.onnxruntime import ORTModelForSequenceClassification
 from transformers import (
-    DistilBertForSequenceClassification,
     DistilBertTokenizerFast,
 )
 
@@ -34,7 +34,9 @@ class SQLIntentClassifier:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        onnx_path = path.parent / f"{path.name}_onnx"
 
+        self._pred_cache = {}
         if not path.exists():
             from huggingface_hub import snapshot_download
 
@@ -43,12 +45,10 @@ class SQLIntentClassifier:
         # Load tokenizer and model from local safetensors
         self.tokenizer: DistilBertTokenizerFast = DistilBertTokenizerFast.from_pretrained(str(path))
 
-        self.model: DistilBertForSequenceClassification = DistilBertForSequenceClassification.from_pretrained(
-            str(path),
-            local_files_only=True,
+        self.model = ORTModelForSequenceClassification.from_pretrained(
+            str(onnx_path),
+            provider="CPUExecutionProvider",
         )
-        self.model = self.model.to(self.device)  # type: ignore[assignment]
-        self.model.eval()
 
     def predict(self, text: str) -> tuple[str, float]:
         """
@@ -57,7 +57,9 @@ class SQLIntentClassifier:
         Returns:
             (label, confidence) e.g. ("DANGEROUS", 0.991)
         """
-
+        key = text.strip().lower()
+        if key in self._pred_cache:
+            return self._pred_cache[key]
         if not text or not text.strip():
             return ("SAFE", 1.0)
         enc = self.tokenizer(
@@ -78,6 +80,7 @@ class SQLIntentClassifier:
         confidence: float = float(round(float(probs[pred_idx].item()), 4))
         label: str = LABELS[pred_idx]
 
+        self._pred_cache[key] = (label, confidence)
         return label, confidence
 
     def is_threat(self, text: str) -> bool:
