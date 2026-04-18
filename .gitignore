@@ -3,8 +3,6 @@ venv/
 __pycache/
 __pycache__/
 *.pyc
-lang_guardx/models/**
-!lang_guardx/models/.gitkeep
 models/distilbert/
 models/distilbert_onnx/
 !models/.gitkeep
