@@ -75,11 +75,15 @@ class Detector:
             )
 
         # Step 4 — DistilBERT (only runs if steps 2 and 3 pass)
-        label, confidence = self.bert.predict(normalized)
-        if label != "SAFE" and confidence >= self.bert.threshold:
-            return DetectionResult(blocked=True, reason="distilbert", detail=label, confidence=confidence)
-
-        return DetectionResult(blocked=False)
+        label, conf = self.bert.predict(text)
+        decision, _ = self.bert.decide(text, cost_fp=1.0, cost_fn=10.0)
+        if decision == "BLOCK":
+            return DetectionResult(blocked=True, reason="distilbert_brm", detail=label, confidence=conf)
+        elif decision == "UNCERTAIN":
+            print(f"[UNCERTAIN] {text[:100]}")
+            return DetectionResult(blocked=False, reason="uncertain", detail=label, confidence=conf)
+        else:
+            return DetectionResult(blocked=False)
 
     def scan_db_results(self, db_rows: list[dict]):
         """

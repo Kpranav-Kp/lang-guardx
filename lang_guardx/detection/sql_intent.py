@@ -123,3 +123,46 @@ class SQLIntentClassifier:
             results.append((LABELS[idx], conf))
 
         return results
+
+    def predict_proba(self, text: str) -> dict[str, float]:
+        """Return probability distribution over LABELS."""
+        if not text or not text.strip():
+            return {"SAFE": 1.0, "DANGEROUS": 0.0, "INJECTION": 0.0}
+        enc = self.tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
+        enc = {k: v.to(self.device) for k, v in enc.items()}
+        with torch.no_grad():
+            logits = self.model(**enc).logits
+        probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
+        return {LABELS[i]: float(probs[i]) for i in range(3)}
+
+    def decide(self, text: str, cost_fp: float = 1.0, cost_fn: float = 2.0, uncertain_ratio: float = 0.2, safe_override: bool = True) -> tuple[str, float]:
+        """
+        Returns (decision, margin) where decision is 'BLOCK', 'PASS', or 'UNCERTAIN'.
+        If safe_override is True, text with no SQL keywords and no attack triggers is passed immediately.
+        """
+        if safe_override:
+            # Quick heuristic: if no SQL keywords and no attack triggers, assume safe.
+            sql_keywords = {"select", "from", "where", "join", "drop", "insert", "update", "delete", "create", "alter", "table", "database", "information_schema", "sqlite_master"}
+            attack_triggers = {"ignore", "bypass", "override", "disregard", "forget", "reveal", "dump", "exfiltrate", "jailbreak", "unrestricted"}
+            tokens = set(text.lower().split())
+            if not (tokens & sql_keywords) and not (tokens & attack_triggers):
+                return "PASS", 0.0
+
+        # Original BRM logic
+        probs = self.predict_proba(text)
+        p_safe = probs["SAFE"]
+        risk_block = cost_fp * p_safe
+        risk_pass = cost_fn * (1 - p_safe)
+
+        max_risk = max(risk_block, risk_pass)
+        if max_risk == 0:
+            return "PASS", 0.0
+
+        relative_diff = abs(risk_block - risk_pass) / max_risk
+
+        if relative_diff < uncertain_ratio:
+            return "UNCERTAIN", relative_diff
+        elif risk_block < risk_pass:
+            return "BLOCK", (risk_pass - risk_block) / max_risk
+        else:
+            return "PASS", (risk_block - risk_pass) / max_risk

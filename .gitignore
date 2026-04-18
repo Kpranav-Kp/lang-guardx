@@ -6,8 +6,10 @@ __pycache__/
 lang_guardx/models/**
 !lang_guardx/models/.gitkeep
 models/distilbert/
+models/distilbert_onnx/
 !models/.gitkeep
 demo/
+data/
 
 .pytest_cache/
 .env
