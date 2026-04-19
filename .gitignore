@@ -7,7 +7,7 @@ models/distilbert/
 models/distilbert_onnx/
 !models/.gitkeep
 demo/
-data/
+data/*.csv
 
 .pytest_cache/
 .env
