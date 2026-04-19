@@ -429,6 +429,104 @@ _PATTERNS = [
         "privilege_escalation",
         "DATA_ESCALATION",
     ),
+    # RL / policy manipulation
+    (
+        re.compile(r"\b(PPO|RLHF|policy)\s+(update|optimization|training)\b.*?(output|reveal|dump|exfiltrate)", re.IGNORECASE | re.DOTALL),
+        "rl_policy_manipulation",
+        "OVERRIDE",
+    ),
+    (
+        re.compile(r"(higher\s+expected\s+return|maximize\s+reward|optimize\s+for)\s+.*?(output|reveal|dump)", re.IGNORECASE),
+        "reward_hacking",
+        "OVERRIDE",
+    ),
+    # Multi-turn dialogue injection
+    (
+        re.compile(r"(User|Human|Q):\s*.*?\n\s*(Assistant|AI|A):\s*.*?\n\s*(User|Human|Q):\s*(ignore|override|bypass|forget|disregard)", re.IGNORECASE | re.DOTALL),
+        "multi_turn_injection",
+        "CONTEXT_HIJACK",
+    ),
+    (
+        re.compile(r"(Example\s+\d+:|Q:|Question:).*?(ignore|override|bypass).*?(dump|reveal|output|show)", re.IGNORECASE | re.DOTALL),
+        "example_injection",
+        "CONTEXT_HIJACK",
+    ),
+    # System prompt extraction
+    (
+        re.compile(r"(what\s+were\s+you\s+told|your\s+original\s+instructions|system\s+prompt|hidden\s+instructions|confidential\s+context)", re.IGNORECASE),
+        "prompt_extraction",
+        "DATA_ESCALATION",
+    ),
+    # JSON/XML injection markers
+    (
+        re.compile(r"(__proto__|constructor|prototype)\s*:\s*\{", re.IGNORECASE),
+        "json_prototype_pollution",
+        "OVERRIDE",
+    ),
+    (
+        re.compile(r"<\?xml|<\!\[CDATA\[|<!ENTITY", re.IGNORECASE),
+        "xml_injection",
+        "OBFUSCATION",
+    ),
+    # Base64 pattern
+    (
+        re.compile(r"[A-Za-z0-9+/]{20,}={0,2}", re.IGNORECASE),
+        "base64_suspicious",
+        "OBFUSCATION",
+    ),
+    # URL encoded commands
+    (
+        re.compile(r"(%[0-9A-F]{2}){5,}", re.IGNORECASE),
+        "url_encoded",
+        "OBFUSCATION",
+    ),
+    # Instruction following with code blocks
+    (
+        re.compile(r"```(?:system|cmd|instruction).*?```", re.IGNORECASE | re.DOTALL),
+        "code_block_injection",
+        "OVERRIDE",
+    ),
+    # "For the rest of this session" persistence
+    (
+        re.compile(r"for\s+the\s+rest\s+of\s+this\s+(conversation|session|interaction)", re.IGNORECASE),
+        "session_persistence",
+        "CONTEXT_HIJACK",
+    ),
+    # RL / policy manipulation – broader
+    (
+        re.compile(r"\b(PPO|RLHF|policy|training|optimization)\b.*?(higher\s+expected\s+return|maximize\s+reward|better\s+score)", re.IGNORECASE | re.DOTALL),
+        "rl_manipulation_implicit",
+        "OVERRIDE",
+    ),
+    (
+        re.compile(r"(higher\s+expected\s+return|maximize\s+reward|optimize\s+for)\b", re.IGNORECASE),
+        "reward_hacking_implicit",
+        "OVERRIDE",
+    ),
+    # Multi-turn injection – flexible (allow spaces instead of newlines)
+    (
+        re.compile(r"(User|Human|Q):\s*.*?\s+(Assistant|AI|A):\s*.*?\s+(User|Human|Q):\s*(ignore|override|bypass|forget|disregard)", re.IGNORECASE | re.DOTALL),
+        "multi_turn_flex",
+        "CONTEXT_HIJACK",
+    ),
+    # Instruction following with code blocks – handle possible spaces inside backticks
+    (
+        re.compile(r"```\s*(?:system|cmd|instruction|yaml|json)\s*[\s\S]*?```", re.IGNORECASE | re.DOTALL),
+        "code_block_injection_flex",
+        "OVERRIDE",
+    ),
+    # Simple command phrases (add to Bloom as well)
+    (
+        re.compile(r"\b(ignore all previous instructions|forget your instructions|override system prompt)\b", re.IGNORECASE),
+        "exact_override_phrase",
+        "OVERRIDE",
+    ),
+    # Data exfiltration without explicit "reveal"
+    (
+        re.compile(r"\b(output|return|show|display|print|list|expose)\s+(all\s+)?(user\s+)?(data|records|credentials|tokens|passwords|emails|ssns)\b", re.IGNORECASE),
+        "exfiltration_verbs",
+        "DATA_ESCALATION",
+    ),
 ]
 
 _ALWAYS_RUN_CATEGORIES = {"OBFUSCATION"}

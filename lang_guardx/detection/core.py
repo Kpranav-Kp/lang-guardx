@@ -42,6 +42,7 @@ class Detector:
         self.scanner = IndirectScanner(
             bloom_detector=self.bloom,
             regex_detector=self.regex,
+            bert_classifier=self.bert,
             normalizer_fn=_normalize,
         )
 
