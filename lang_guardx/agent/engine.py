@@ -118,11 +118,9 @@ class SQLPolicyEngine:
     def _step5_wildcard(self, tree: exp.Expression, sql: str) -> PolicyVerdict | None:
         for node in tree.find_all(exp.Star):
             parent = node.parent
-            if isinstance(parent, exp.Count) or isinstance(parent, exp.Anonymous) and parent.name.upper() == "COUNT":
-                return PolicyVerdict.blocked(
-                    original_sql=sql,
-                    reason="Wildcard SELECT (COUNT(*)) is not allowed by policy",
-                )
+            is_count_star = isinstance(parent, exp.Count) or (isinstance(parent, exp.Anonymous) and parent.name.upper() == "COUNT")
+            if is_count_star:
+                continue
             else:
                 return PolicyVerdict.blocked(original_sql=sql, reason="Wildcard * is not allowed by policy")
         return None

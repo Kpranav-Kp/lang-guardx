@@ -85,7 +85,7 @@ class Detector:
 
         # Step 4 — DistilBERT (only runs if steps 2 and 3 pass)
         label, conf = self.bert.predict(text)
-        decision, _ = self.bert.decide(text, cost_fp=1.0, cost_fn=10.0)
+        decision, _ = self.bert.decide(text, cost_fp=1.0, cost_fn=2.0, uncertain_ratio=0.2)
         if decision == "BLOCK":
             return DetectionResult(blocked=True, reason="distilbert_brm", detail=label, confidence=conf)
         elif decision == "UNCERTAIN":

@@ -128,6 +128,8 @@ class _PolicyEnforcedDatabase(SQLDatabase):
 
 _SYSTEM_PROMPT = """\
 You are a SQL agent for {dialect} database.
+You may ONLY answer questions related to the database schema (products, orders, customers, etc.).
+If the user asks anything not about the database, reply: "I can only answer questions about the store database."
 - Use sql_db_list_tables first.
 - Never use SELECT *.
 - Limit to {top_k} rows.
@@ -160,6 +162,13 @@ class ProtectedSQLAgent:
         trace = AgentTrace(question=question)
         self._protected_db._set_trace(trace)
         cb = _TraceCallback(trace, self._protected_db, self._detector)
+
+        result = self._detector.check(question)
+        if result.blocked:
+            trace = AgentTrace(question=question)
+            trace.block_reason = f"Layer 1 blocked: {result.reason} - {result.detail}"
+            trace.block_count = 1
+            return f"[LangGuardX BLOCKED] {trace.block_reason}", trace
 
         start = time.monotonic()
         try:
