@@ -45,6 +45,11 @@ class Detector:
             bert_classifier=self.bert,
             normalizer_fn=_normalize,
         )
+        self.adaptive_bloom = None
+
+    def set_adaptive_bloom(self, adaptive_bloom: BloomDetector) -> None:
+        """Inject the adaptive Bloom filter (from AdaptiveEngine)."""
+        self.adaptive_bloom = adaptive_bloom
 
     def check(self, text: str) -> DetectionResult:
         """
@@ -65,6 +70,9 @@ class Detector:
                 reason="bloom_filter",
                 detail="known injection signature matched",
             )
+
+        if self.adaptive_bloom is not None and self.adaptive_bloom.might_be_attack(normalized):
+            return DetectionResult(blocked=True, reason="adaptive_bloom", detail="runtime-learned pattern matched")
 
         # Step 3 — Regex
         regex_match = self.regex.check(normalized)

@@ -24,6 +24,7 @@ class AdaptiveEngine:
         log_path: str = "adaptive_log.jsonl",
     ) -> None:
         self._bloom = bloom
+        self._adaptive_bloom = BloomDetector()
         self._ontology = ontology
         self._log_path = Path(log_path)
 
@@ -39,7 +40,7 @@ class AdaptiveEngine:
         target = self._ontology.get_update_target(attack_id)
 
         if target == "bloom_corpus":
-            self._bloom.load_corpus([new_pattern])
+            self._adaptive_bloom.load_corpus([new_pattern], min_window=4)
             self._ontology.add_fuzzer_instance(attack_id, new_pattern)
             self._log(attack_id, new_pattern, target)
 
@@ -47,6 +48,10 @@ class AdaptiveEngine:
             pass  # deterministic checks don't need corpus updates
 
         return target
+
+    def get_adaptive_bloom(self) -> BloomDetector:
+        """Return the adaptive Bloom filter for use in the detector."""
+        return self._adaptive_bloom
 
     def get_adaptation_count(self) -> int:
         """Total patterns learned at runtime — thesis RQ4 metric."""

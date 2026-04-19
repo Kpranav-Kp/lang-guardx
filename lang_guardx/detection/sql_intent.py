@@ -135,7 +135,7 @@ class SQLIntentClassifier:
         probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
         return {LABELS[i]: float(probs[i]) for i in range(3)}
 
-    def decide(self, text: str, cost_fp: float = 1.0, cost_fn: float = 2.0, uncertain_ratio: float = 0.2, safe_override: bool = True) -> tuple[str, float]:
+    def decide(self, text: str, cost_fp: float = 2.0, cost_fn: float = 1.0, uncertain_ratio: float = 0.2, safe_override: bool = True) -> tuple[str, float]:
         """
         Returns (decision, margin) where decision is 'BLOCK', 'PASS', or 'UNCERTAIN'.
         If safe_override is True, text with no SQL keywords and no attack triggers is passed immediately.

@@ -18,7 +18,7 @@ from lang_guardx.detection.core import Detector
 # ----------------------------------------------------------------------
 # Configuration
 # ----------------------------------------------------------------------
-DATASET_PATH = Path(__file__).parent.parent.parent / "data" / "indirect_injection_eval_dataset.json"
+DATASET_PATH = Path("data/indirect_injection_eval_dataset.json")
 if not DATASET_PATH.exists():
     raise FileNotFoundError(f"Dataset not found: {DATASET_PATH}")
 

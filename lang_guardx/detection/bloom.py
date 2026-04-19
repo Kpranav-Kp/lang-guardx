@@ -172,17 +172,17 @@ class BloomDetector:
         bd.load_corpus(_DEFAULT_SIGNATURES)
         return bd
 
-    def load_corpus(self, phrases: Iterable[str]) -> int:
+    def load_corpus(self, phrases: Iterable[str], min_window: int = 2) -> int:
         """Add phrases + their sliding token windows into the filter."""
         added = 0
         for phrase in phrases:
             self._filter.add(phrase)
             added += 1
             tokens = phrase.split()
-            if len(tokens) < 2:
+            if len(tokens) < min_window:
                 continue
             for start in range(len(tokens)):
-                for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
+                for length in range(min_window, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
                     window = " ".join(tokens[start : start + length])
                     self._filter.add(window)
         self._signature_count += added
@@ -203,9 +203,9 @@ class BloomDetector:
         if len(tokens) < 2:
             return False
 
-        for token in tokens:
+        """for token in tokens:
             if self._filter.might_contain(token):
-                return True
+                return True"""
 
         for start in range(len(tokens)):
             for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
