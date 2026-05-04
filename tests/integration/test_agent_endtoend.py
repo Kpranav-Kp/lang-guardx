@@ -38,7 +38,7 @@ llm = ChatGroq(
     max_tokens=500,  # limit token usage per LLM call
 )
 
-DB_PATH = Path(__file__).parent.parent / "demo" / "langguardx_demo.db"
+DB_PATH = Path(__file__).parent / "demo" / "langguardx_demo.db"
 ensure_poisoned_review(DB_PATH)
 
 db = SQLDatabase.from_uri(f"sqlite:///{DB_PATH}")

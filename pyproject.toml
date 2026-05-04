@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langguardx"
-version = "0.2.0"
+version = "0.3.0"
 description = "Adaptive multi-layer security middleware for LangChain SQL agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,28 +12,37 @@ license = { text = "MIT" }
 authors = [{ name = "K Pranav", email = "pranav2005.kp@example.com" }]
 
 dependencies = [
+    # Core utilities
     "mmh3>=3.0.0",
     "bitarray>=2.7.0",
     "huggingface-hub>=0.20.0",
     "safetensors>=0.4.0",
     "sqlglot>=23.0.0",
-    "pyyaml>=6.0.0"
-]
+    "pyyaml>=6.0.0",
+    "regex>=2024.0.0",
+    "pydantic>=2.0.0",
 
-[project.optional-dependencies]
-ml = [
+    # Machine learning
     "torch>=2.0.0",
     "transformers>=4.35.0",
-]
-langchain = [
+    "scikit-learn>=1.5.0",
+
+    # LangChain ecosystem
     "langchain>=0.1.0",
     "langchain-core>=0.1.0",
     "langchain-community>=0.0.1",
+    "langchain-experimental>=0.0.1",
+    "langchainhub>=0.1.0",
+
+    # Data and database
     "SQLAlchemy>=2.0.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
 ]
+
+[project.optional-dependencies]
 dev = [
     "pytest>=9.0.0",
-    "pandas>=2.0.0",
 ]
 
 [project.scripts]
@@ -41,4 +50,4 @@ langguardx-verify = "lang_guardx.cli:verify"
 
 [tool.hatch.build.targets.wheel]
 packages = ["lang_guardx"]
-exclude = ["models/", "training/", "tests/"]
+exclude = ["models/", "training/", "tests/", "demo/", "scripts/", "data/"]
