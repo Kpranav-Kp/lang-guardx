@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import functools
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,7 @@ from lang_guardx.context import GuardContext
 from lang_guardx.detection.core import DetectionResult, Detector
 from lang_guardx.detection.indirect import ScanResult
 from lang_guardx.events import EventBus, GuardEvent
-from lang_guardx.exceptions import ConfigurationError
+from lang_guardx.exceptions import BlockedRequest, ConfigurationError
 
 
 class LangGuardX:
@@ -240,6 +242,90 @@ class LangGuardX:
             return f"[LangGuardX BLOCKED] {ctx.detection_result.reason}", trace
 
         return self._middleware.run(question, self._detector, self._event_bus)
+
+    # ── Decorator / Context-Manager API ──────────────────────────────────
+
+    class _GuardDecorator:
+        """Decorator that wraps a function with Layer 1 + Layer 3 protection.
+
+        Usage::
+
+            @guard.wrap
+            def chat(msg: str) -> str:
+                return llm.invoke(msg)
+
+
+            @guard.wrap(input_pos=1)
+            def chat(system: str, msg: str) -> str:
+                return llm.invoke(msg)
+        """
+
+        def __init__(self, guard: LangGuardX, input_pos: int = 0) -> None:
+            self._guard = guard
+            self._input_pos = input_pos
+
+        def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            """Support both ``@guard.wrap`` and ``@guard.wrap(input_pos=1)``."""
+            if args and callable(args[0]):
+                return self._decorate(args[0])
+            if not args and not kwargs:
+                return self
+            if not args and set(kwargs) == {"input_pos"}:
+                return type(self)(self._guard, **kwargs)
+            return self._decorate(args[0])
+
+        def _decorate(self, func: Callable[..., Any]) -> Callable[..., Any]:
+            @functools.wraps(func)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                input_text = ""
+                if args and self._input_pos < len(args):
+                    input_text = str(args[self._input_pos])
+                elif kwargs:
+                    input_text = str(next(iter(kwargs.values())))
+                ctx = self._guard.protect(input_text)
+                if ctx.detection_result and ctx.detection_result.blocked:
+                    raise BlockedRequest(ctx.detection_result.reason)
+                result = func(*args, **kwargs)
+                self._guard._scan_output(result)
+                return result
+
+            return wrapper
+
+    @property
+    def wrap(self) -> _GuardDecorator:
+        """Decorator to protect a function with Layer 1 and Layer 3.
+
+        See :class:`_GuardDecorator` for details.
+        """
+        return self._GuardDecorator(self)
+
+    def _scan_output(self, result: Any) -> None:
+        """Run Layer 3 scanning on *result* (no-op if not str/list[dict])."""
+        if isinstance(result, str):
+            self.scan_results([{"output": result}])
+        elif isinstance(result, list) and result and isinstance(result[0], dict):
+            self.scan_results(result)
+
+    @contextmanager
+    def context(self, text: str = "") -> Iterator[GuardContext]:
+        """Context manager wrapping a block with Layer 1 (enter) and Layer 3 (exit).
+
+        Usage::
+
+            with guard.context("user message") as ctx:
+                result = llm.invoke("user message")
+                # On exit, result is scanned if stored in ctx.db_results
+        """
+        ctx = self.protect(text)
+        if ctx.detection_result and ctx.detection_result.blocked:
+            raise BlockedRequest(ctx.detection_result.reason)
+        try:
+            yield ctx
+        finally:
+            if ctx.db_results:
+                sanitized, flags = self.scan_results(ctx.db_results)
+                ctx.sanitized_results = sanitized
+                ctx.scan_flags = flags
 
     # ── Events ────────────────────────────────────────────────────────────
 
