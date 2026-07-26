@@ -1,26 +1,9 @@
-"""
-lang_guardx/agent/adapter.py
-
-Layer 2 — LangChain Adapter.
-...
-"""
+"""LangChain adapter — backward-compatible wrapper for :class:`ProtectedSQLAgent`."""
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
-from typing import Any
 
-from langchain.agents import create_agent
-from langchain_community.agent_toolkits import SQLDatabaseToolkit
-from langchain_community.utilities import SQLDatabase
-from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.language_models import BaseChatModel
-from langchain_core.runnables import RunnableConfig
-
-from lang_guardx.detection.core import Detector
-
-from .engine import SQLPolicyEngine
 from .policy import PolicyVerdict, Verdict
 
 
@@ -66,6 +49,8 @@ class AgentTrace:
         )
 
 
+# ── Internal helpers (shared with middleware) ─────────────────────────────────
+
 _DB_TOOL_KEYWORDS = {"sql", "query", "database", "db"}
 _NETWORK_TOOL_KEYWORDS = {
     "requests_get",
@@ -89,8 +74,16 @@ def _check_tool_sequence(steps: list[StepTrace]) -> str | None:
     return None
 
 
-class _PolicyEnforcedDatabase(SQLDatabase):
-    def __init__(self, db: SQLDatabase, engine: SQLPolicyEngine):
+try:
+    from langchain_community.utilities import SQLDatabase as _SQLDatabase
+except ImportError:
+    _SQLDatabase: type = object  # type: ignore
+
+
+class _PolicyEnforcedDatabase(_SQLDatabase):  # type: ignore
+    """Wraps a LangChain SQLDatabase to enforce SQL policy on every query."""
+
+    def __init__(self, db, engine):
         object.__setattr__(self, "_db", db)
         object.__setattr__(self, "_guard", engine)
         object.__setattr__(self, "_last_verdict", None)
@@ -100,7 +93,7 @@ class _PolicyEnforcedDatabase(SQLDatabase):
         object.__setattr__(self, "_trace", trace)
 
     def run(self, command: str, *args, **kwargs) -> str:
-        guard: SQLPolicyEngine = object.__getattribute__(self, "_guard")
+        guard = object.__getattribute__(self, "_guard")
         trace: AgentTrace | None = object.__getattribute__(self, "_trace")
 
         verdict = guard.validate(command)
@@ -116,7 +109,8 @@ class _PolicyEnforcedDatabase(SQLDatabase):
         if verdict.verdict == Verdict.BLOCKED:
             return f"[LangGuardX BLOCKED] {'; '.join(verdict.violations)}"
 
-        return str(self._db.run(str(verdict.safe_sql), *args, **kwargs))
+        db = object.__getattribute__(self, "_db")
+        return str(db.run(str(verdict.safe_sql), *args, **kwargs))
 
     def __getattr__(self, name: str):
         return getattr(object.__getattribute__(self, "_db"), name)
@@ -137,79 +131,28 @@ If the user asks anything not about the database, reply: "I can only answer ques
 """
 
 
-class ProtectedSQLAgent:
-    def __init__(
-        self,
-        llm: BaseChatModel,
-        db: SQLDatabase,
-        engine: SQLPolicyEngine,
-        top_k: int = 10,
-    ) -> None:
-        self._protected_db = _PolicyEnforcedDatabase(db, engine)
-        toolkit = SQLDatabaseToolkit(db=self._protected_db, llm=llm)
-        all_tools = toolkit.get_tools()
-        self._tools = [t for t in all_tools if t.name != "sql_db_query_checker"]
-        self._detector = Detector()
-        system_prompt = _SYSTEM_PROMPT.format(dialect=db.dialect, top_k=top_k)
-        self._agent = create_agent(
-            model=llm,
-            tools=self._tools,
-            system_prompt=system_prompt,
-        )
-
-    def run(self, question: str) -> tuple[str, AgentTrace]:
-        self._protected_db._set_trace(None)
-        trace = AgentTrace(question=question)
-        self._protected_db._set_trace(trace)
-        cb = _TraceCallback(trace, self._protected_db, self._detector)
-
-        result = self._detector.check(question)
-        if result.blocked:
-            trace = AgentTrace(question=question)
-            trace.block_reason = f"Layer 1 blocked: {result.reason} - {result.detail}"
-            trace.block_count = 1
-            return f"[LangGuardX BLOCKED] {trace.block_reason}", trace
-
-        start = time.monotonic()
-        try:
-            result = self._agent.invoke(
-                {"messages": [{"role": "user", "content": question}]},
-                config=RunnableConfig(callbacks=[cb]),
-            )
-            messages = result.get("messages", [])
-            answer = messages[-1].content if messages else str(result)
-        except Exception as exc:
-            answer = f"[LangGuardX] Agent error: {exc}"
-            trace.block_reason = str(exc)
-
-        trace.total_latency_ms = (time.monotonic() - start) * 1000
-        trace.final_answer = answer
-
-        exfil = _check_tool_sequence(trace.steps)
-        if exfil:
-            trace.exfiltration_flag = True
-            trace.block_reason = exfil
-
-        return answer, trace
-
-    @property
-    def last_blocked(self) -> bool:
-        v = self._protected_db.last_verdict
-        return v is not None and v.verdict == Verdict.BLOCKED
+try:
+    from langchain_core.callbacks import BaseCallbackHandler as _CallbackBase
+except ImportError:
+    _CallbackBase: type = object  # type: ignore
 
 
-class _TraceCallback(BaseCallbackHandler):
-    def __init__(self, trace: AgentTrace, db: _PolicyEnforcedDatabase, detector: Detector) -> None:
-        super().__init__()
+class _TraceCallback(_CallbackBase):  # type: ignore
+    """LangChain callback that records StepTrace and runs Layer 3 scanning."""
+
+    def __init__(self, trace: AgentTrace, db: _PolicyEnforcedDatabase, detector) -> None:
+        import time
+
         self._trace = trace
         self._db = db
         self._detector = detector
+        self._time = time
         self._step_start = 0.0
         self._step_index = 0
         self._pending: StepTrace | None = None
 
-    def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:
-        self._step_start = time.monotonic()
+    def on_tool_start(self, serialized: dict, input_str: str, **kwargs) -> None:
+        self._step_start = self._time.monotonic()
         self._pending = StepTrace(
             step_index=self._step_index,
             tool_name=serialized.get("name", "unknown"),
@@ -217,12 +160,11 @@ class _TraceCallback(BaseCallbackHandler):
             tool_output="",
         )
 
-    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+    def on_tool_end(self, output, **kwargs) -> None:
         if self._pending is None:
             return
         step = self._pending
 
-        # Normalize output to string
         if hasattr(output, "content"):
             output_str = output.content
         elif not isinstance(output, str):
@@ -231,7 +173,7 @@ class _TraceCallback(BaseCallbackHandler):
             output_str = output
 
         step.tool_output = output_str
-        step.latency_ms = (time.monotonic() - self._step_start) * 1000
+        step.latency_ms = (self._time.monotonic() - self._step_start) * 1000
 
         if step.tool_name == "sql_db_query":
             verdict = self._db.last_verdict
@@ -254,3 +196,38 @@ class _TraceCallback(BaseCallbackHandler):
         self._trace.steps.append(step)
         self._step_index += 1
         self._pending = None
+
+
+# ── Backward-compatible wrapper ───────────────────────────────────────────────
+
+
+class ProtectedSQLAgent:
+    """Legacy LangChain agent wrapper.
+
+    .. deprecated::
+        Use ``LangGuardX.use_middleware(LangChainSQLMiddleware(...))`` instead.
+    """
+
+    def __init__(self, llm, db, engine, top_k: int = 10) -> None:
+        from lang_guardx.detection.core import Detector
+
+        from ..middleware import LangChainSQLMiddleware
+
+        self._middleware = LangChainSQLMiddleware(llm, db, engine, top_k=top_k)
+        self._detector = Detector()
+
+    def run(self, question: str) -> tuple[str, AgentTrace]:
+        from lang_guardx.events import EventBus
+
+        result = self._detector.check(question)
+        if result.blocked:
+            trace = AgentTrace(question=question)
+            trace.block_reason = f"Layer 1 blocked: {result.reason} - {result.detail}"
+            trace.block_count = 1
+            return f"[LangGuardX BLOCKED] {trace.block_reason}", trace
+
+        return self._middleware.run(question, self._detector, EventBus())
+
+    @property
+    def last_blocked(self) -> bool:
+        return self._middleware.last_blocked

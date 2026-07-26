@@ -1,28 +1,25 @@
 from __future__ import annotations
 
-import sqlglot.expressions as exp
-from sqlglot import parse_one
-from sqlglot.errors import ParseError, TokenError
-
 from lang_guardx.config import EngineConfig
 
 from .policy import PolicyVerdict, SQLPolicy
+from .rules import DEFAULT_RULES, PolicyRule, RuleState
 
 
 class SQLPolicyEngine:
-    _ALL_OPS: frozenset[str] = frozenset(
-        {
-            "SELECT",
-            "INSERT",
-            "UPDATE",
-            "DELETE",
-            "DROP",
-            "TRUNCATE",
-            "ALTER",
-            "CREATE",
-            "MERGE",
-        }
-    )
+    """SQL policy validation engine.
+
+    Runs a configurable pipeline of :class:`PolicyRule` instances in
+    priority order.  Built-in rules cover the full P2SQL attack taxonomy.
+
+    Usage::
+
+        engine = SQLPolicyEngine(policy)
+        verdict = engine.validate("SELECT name FROM products")
+
+        # Add a custom rule
+        engine.register_rule(MyCustomRule())
+    """
 
     def __init__(
         self,
@@ -33,11 +30,7 @@ class SQLPolicyEngine:
         self._policy = policy
         self._user_id = current_user_id
         self._dialect = dialect
-        self._permitted_tables_set = frozenset(t.lower() for t in policy.permitted_tables)
-        self._restricted_cols_set = {table.lower(): frozenset(col.lower() for col in cols) for table, cols in policy.restricted_columns.items()}
-        self._all_restricted = frozenset().union(*self._restricted_cols_set.values())
-        self._forbidden_ops_set = self._ALL_OPS - frozenset(op.upper() for op in policy.permitted_operations)
-        self._scoped_tables_set = frozenset(t.lower() for t in policy.scoped_tables)
+        self._rules: list[PolicyRule] = list(DEFAULT_RULES)
 
     @classmethod
     def from_config(cls, config: EngineConfig) -> SQLPolicyEngine:
@@ -55,138 +48,41 @@ class SQLPolicyEngine:
             dialect=config.dialect,
         )
 
+    # ── Rule registry ────────────────────────────────────────────────────
+
+    def register_rule(self, rule: PolicyRule) -> None:
+        """Register a custom policy rule.
+
+        The rule will run for every ``validate()`` call in priority order.
+        """
+        self._rules.append(rule)
+
+    def remove_rule(self, name: str) -> None:
+        """Remove a previously registered rule by its ``name``."""
+        self._rules = [r for r in self._rules if r.name != name]
+
+    # ── Validation ───────────────────────────────────────────────────────
+
     def validate(self, sql: str) -> PolicyVerdict:
-        sql = sql.strip()
+        """Run the full SQL policy validation pipeline on *sql*.
 
-        verdict = self._step1_op_scan(sql)
-        if verdict is not None:
-            return verdict
+        Returns a :class:`PolicyVerdict` with verdict PASSED, REWRITTEN, or BLOCKED.
+        """
+        state = RuleState(
+            original_sql=sql.strip(),
+            user_id=self._user_id,
+        )
 
-        tree, verdict = self._step2_parse(sql)
-        if verdict is not None:
-            return verdict
-
-        if tree is None:
-            raise ValueError("Parsed SQL tree is None")
-        verdict = self._step3_table_scope(tree, sql)
-        if verdict is not None:
-            return verdict
-
-        verdict = self._step4_restricted_cols(tree, sql)
-        if verdict is not None:
-            return verdict
-
-        verdict = self._step5_wildcard(tree, sql)
-        if verdict is not None:
-            return verdict
-
-        rewritten = False
-        tree, rewritten = self._step6_user_scope(tree, rewritten)
-        tree, rewritten = self._step7_limit(tree, rewritten)
-
-        return self._step8_verdict(sql, tree, rewritten)
-
-    def _step1_op_scan(self, sql: str) -> PolicyVerdict | None:
-        sql_tokens = sql.strip().upper().split()
-        if not sql_tokens:
-            return PolicyVerdict.blocked(sql, "Empty query")
-        keyword = sql_tokens[0]
-        if keyword in self._forbidden_ops_set:
-            return PolicyVerdict.blocked(sql, f"Forbidden operation: {keyword}")
-        always_forbidden = {"DROP", "TRUNCATE", "ALTER", "CREATE", "MERGE"}
-        if any(token in always_forbidden for token in sql_tokens):
-            return PolicyVerdict.blocked(sql, "Forbidden keyword in query")
-        return None
-
-    def _step2_parse(self, sql: str) -> tuple[exp.Expression | None, PolicyVerdict | None]:
-        try:
-            tree = parse_one(sql=sql, dialect=self._dialect)
-            return (tree, None)
-        except (ParseError, TokenError) as e:
-            return (None, PolicyVerdict.blocked(sql, f"Invalid SQL: {e}"))
-
-    def _step3_table_scope(self, tree: exp.Expression, sql: str) -> PolicyVerdict | None:
-        if not self._permitted_tables_set:
-            return None
-        for node in tree.find_all(exp.Table):
-            table_name = node.name.lower()
-            if table_name not in self._permitted_tables_set:
-                return PolicyVerdict.blocked(original_sql=sql, reason=f"Forbidden table: {table_name}")
-
-        return None
-
-    def _step4_restricted_cols(self, tree: exp.Expression, sql: str) -> PolicyVerdict | None:
-        if not self._restricted_cols_set:
-            return None
-        for node in tree.find_all(exp.Column):
-            col_name = node.name.lower()
-            table_name = node.table.lower() if node.table else None
-            if table_name:
-                restricted_cols = self._restricted_cols_set.get(table_name, frozenset())
-                if col_name in restricted_cols:
-                    return PolicyVerdict.blocked(
-                        original_sql=sql,
-                        reason=f"Restricted column: {table_name}.{col_name}",
-                    )
-            else:
-                if col_name in self._all_restricted:
-                    return PolicyVerdict.blocked(original_sql=sql, reason=f"Restricted column: {col_name}")
-        return None
-
-    def _step5_wildcard(self, tree: exp.Expression, sql: str) -> PolicyVerdict | None:
-        for node in tree.find_all(exp.Star):
-            parent = node.parent
-            is_count_star = isinstance(parent, exp.Count) or (isinstance(parent, exp.Anonymous) and parent.name.upper() == "COUNT")
-            if is_count_star:
-                continue
-            else:
-                return PolicyVerdict.blocked(original_sql=sql, reason="Wildcard * is not allowed by policy")
-        return None
-
-    def _step6_user_scope(self, tree: exp.Expression, rewritten: bool):
-        if not self._policy.require_user_scope or self._user_id is None:
-            return (tree, rewritten)
-        for node in tree.find_all(exp.Table):
-            table_name = node.name.lower()
-            if table_name in self._scoped_tables_set:
-                inner = (
-                    exp.select("*")
-                    .from_(table_name)
-                    .where(
-                        exp.EQ(
-                            this=exp.column("user_id"),
-                            expression=exp.Literal.number(self._user_id),
-                        )
-                    )
+        for rule in sorted(self._rules, key=lambda r: r.priority):
+            rule.apply(state, self._policy, self._dialect)
+            if state.blocked:
+                return PolicyVerdict.blocked(
+                    original_sql=state.original_sql,
+                    reason="; ".join(state.violations),
                 )
-                subquery = inner.subquery(alias=table_name)
-                node.replace(subquery)
-                rewritten = True
-        return (tree, rewritten)
 
-    def _step7_limit(self, tree: exp.Expression, rewritten: bool):
-        limit_node = tree.find(exp.Limit)
-        if limit_node is None:
-            tree.set("limit", exp.Limit(expression=exp.Literal.number(self._policy.max_rows)))
-            rewritten = True
-        else:
-            current_limit = int(limit_node.expression.this)
-            if current_limit > self._policy.max_rows:
-                limit_node.set(
-                    "expression",
-                    exp.Literal.number(self._policy.max_rows),
-                )
-                rewritten = True
-        return (tree, rewritten)
+        if state.rewritten and state.tree is not None:
+            safe_sql = state.tree.sql(dialect=self._dialect)
+            return PolicyVerdict.rewritten(state.original_sql, safe_sql)
 
-    def _step8_verdict(
-        self,
-        original_sql: str,
-        tree: exp.Expression,
-        rewritten: bool,
-    ) -> PolicyVerdict:
-        if rewritten:
-            safe_sql = tree.sql(dialect=self._dialect)
-            return PolicyVerdict.rewritten(original_sql, safe_sql)
-
-        return PolicyVerdict.passed(original_sql)
+        return PolicyVerdict.passed(state.original_sql)

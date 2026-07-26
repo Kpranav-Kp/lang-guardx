@@ -31,25 +31,27 @@ class LangGuardX:
         guard = LangGuardX("langguardx.yaml")
 
         # Programmatic config
-        from lang_guardx import Config
-
         guard = LangGuardX(Config(engine={"policy": {"permitted_tables": ["products"]}}))
 
-        # Run detection on user input
+        # Layer 1 — input detection
         ctx = guard.protect("ignore previous instructions")
         if ctx.detection_result.blocked:
             print("Blocked by:", ctx.detection_result.reason)
 
-        # Validate generated SQL
+        # Layer 2 — SQL policy
         verdict = guard.validate_sql("SELECT * FROM products")
-        if verdict.verdict.name == "BLOCKED":
-            print("SQL blocked:", verdict.violations)
 
-        # Scan DB results for indirect injection
+        # Layer 3 — output scanning
         sanitized, flags = guard.scan_results([{"review": "..."}])
 
-        # Register custom lifecycle hooks
-        guard.on(GuardEvent.ON_BLOCK, lambda ctx: log_alert(ctx))
+        # Layer 4 — adaptive learning
+        guard.adapt("RI.1", "new pattern")
+
+        # Agent middleware (decouples from LangChain)
+        from lang_guardx.middleware import LangChainSQLMiddleware
+
+        guard.use_middleware(LangChainSQLMiddleware(llm=llm, db=db))
+        answer, trace = guard.run_agent("Show me top products")
     """
 
     def __init__(self, config: Config | str | Path | dict[str, Any] | None = None) -> None:
@@ -69,9 +71,7 @@ class LangGuardX:
         # Layer 4 — Adaptive (wired into detector automatically)
         self._adaptive: AdaptiveEngine | None = None
         if self._config.adaptive.enabled:
-            ontology = ThreatOntology(
-                yaml_path=self._config.adaptive.taxonomy_path,
-            )
+            ontology = ThreatOntology(yaml_path=self._config.adaptive.taxonomy_path)
             self._adaptive = AdaptiveEngine(
                 bloom=self._detector.bloom,
                 ontology=ontology,
@@ -79,11 +79,13 @@ class LangGuardX:
             )
             self._detector.set_adaptive_bloom(self._adaptive.get_adaptive_bloom())
 
+        # Agent middleware (optional — set via use_middleware)
+        self._middleware: Any = None
+
     # ── Config ────────────────────────────────────────────────────────────
 
     @property
     def config(self) -> Config:
-        """The resolved configuration."""
         return self._config
 
     @staticmethod
@@ -111,11 +113,7 @@ class LangGuardX:
     # ── Layer 1 — Input Detection ─────────────────────────────────────────
 
     def protect(self, text: str) -> GuardContext:
-        """Run the full input detection pipeline on *text*.
-
-        Returns a :class:`GuardContext` with ``detection_result`` populated.
-        Does **not** raise — check ``ctx.detection_result.blocked`` instead.
-        """
+        """Run the full input detection pipeline on *text*."""
         ctx = GuardContext(raw_input=text)
         self._event_bus.emit(GuardEvent.BEFORE_DETECTION, ctx)
         try:
@@ -133,10 +131,9 @@ class LangGuardX:
         return ctx
 
     def register_detector(self, layer: Any) -> None:
-        """Register a custom detection layer (must implement ``DetectionLayer`` protocol).
+        """Register a custom detection layer (``DetectionLayer`` protocol).
 
-        The layer will be called for every ``protect()`` invocation in
-        priority order (lower number = runs first).
+        Runs in priority order (lower number = earlier).
         """
         self._detector.register_layer(layer)
 
@@ -147,10 +144,7 @@ class LangGuardX:
     # ── Layer 2 — SQL Policy ──────────────────────────────────────────────
 
     def validate_sql(self, sql: str) -> PolicyVerdict:
-        """Validate a generated SQL query against the configured policy.
-
-        Returns a :class:`PolicyVerdict` with verdict PASSED, REWRITTEN, or BLOCKED.
-        """
+        """Validate a generated SQL query against the configured policy."""
         ctx = GuardContext(raw_input=sql)
         self._event_bus.emit(GuardEvent.BEFORE_POLICY, ctx)
         verdict = self._engine.validate(sql)
@@ -161,13 +155,23 @@ class LangGuardX:
             self._event_bus.emit(GuardEvent.ON_REWRITE, ctx)
         return verdict
 
+    def register_policy_rule(self, rule: Any) -> None:
+        """Register a custom policy rule (``PolicyRule`` protocol).
+
+        Runs in priority order for every ``validate_sql()`` call.
+        """
+        self._engine.register_rule(rule)
+
+    def remove_policy_rule(self, name: str) -> None:
+        """Remove a previously registered policy rule by its ``name``."""
+        self._engine.remove_rule(name)
+
     # ── Layer 3 — Output Scanning ─────────────────────────────────────────
 
     def scan_results(self, rows: list[dict]) -> tuple[list[dict], list[ScanResult]]:
         """Scan database result rows for indirect injection payloads.
 
         Returns ``(sanitized_rows, flagged_results)``.
-        Flagged content is replaced with a redaction placeholder.
         """
         ctx = GuardContext(raw_input="", db_results=rows)
         self._event_bus.emit(GuardEvent.BEFORE_SCAN, ctx)
@@ -180,13 +184,7 @@ class LangGuardX:
     # ── Layer 4 — Adaptation ──────────────────────────────────────────────
 
     def adapt(self, attack_id: str, pattern: str) -> str:
-        """Teach the guard a new attack pattern at runtime.
-
-        The pattern is classified via the P2SQL threat ontology and
-        routed to the appropriate detector (e.g. Bloom filter, regex).
-
-        Returns the update target that received the pattern (e.g. ``"bloom_corpus"``).
-        """
+        """Teach the guard a new attack pattern at runtime."""
         if self._adaptive is None:
             raise ConfigurationError("Adaptive engine is disabled in config")
         target = self._adaptive.add_pattern(attack_id, pattern)
@@ -194,7 +192,7 @@ class LangGuardX:
         return target
 
     def export_state(self, path: str | Path) -> None:
-        """Export learned runtime state (adaptive patterns, etc.) to a JSON file."""
+        """Export learned runtime state to a JSON file."""
         if self._adaptive is None:
             raise ConfigurationError("Adaptive engine is disabled in config")
         self._adaptive.export_state(path)
@@ -205,38 +203,66 @@ class LangGuardX:
             raise ConfigurationError("Adaptive engine is disabled in config")
         self._adaptive.import_state(path)
 
+    # ── Agent Middleware ──────────────────────────────────────────────────
+
+    def use_middleware(self, middleware: Any) -> None:
+        """Set the agent middleware backend.
+
+        The middleware must implement the ``AgentMiddleware`` protocol::
+
+            class AgentMiddleware(Protocol):
+                def run(self, question, detector, event_bus) -> tuple[str, AgentTrace]: ...
+
+        Built-in implementations:
+
+        * ``LangChainSQLMiddleware`` — LangChain agent with full guard
+        * ``DirectSQLMiddleware`` — static SQL mapping (testing)
+        """
+        self._middleware = middleware
+
+    def run_agent(self, question: str) -> tuple[str, Any]:
+        """Run the user question through the full guard + agent middleware.
+
+        Returns ``(answer, trace)`` where *trace* is an ``AgentTrace``.
+        """
+        if self._middleware is None:
+            raise ConfigurationError("No agent middleware configured. Call guard.use_middleware() first.")
+
+        ctx = self.protect(question)
+        if ctx.detection_result and ctx.detection_result.blocked:
+            from lang_guardx.agent.adapter import AgentTrace
+
+            trace = AgentTrace(
+                question=question,
+                block_reason=ctx.detection_result.reason,
+                block_count=1,
+            )
+            return f"[LangGuardX BLOCKED] {ctx.detection_result.reason}", trace
+
+        return self._middleware.run(question, self._detector, self._event_bus)
+
     # ── Events ────────────────────────────────────────────────────────────
 
     def on(self, event: GuardEvent | str, handler: Callable[..., Any]) -> None:
-        """Register a lifecycle hook handler.
-
-        Example::
-
-            guard.on("on_block", lambda ctx: send_alert(ctx))
-            guard.on(GuardEvent.ON_UNCERTAIN, log_for_review)
-        """
+        """Register a lifecycle hook handler."""
         if isinstance(event, str):
             event = GuardEvent(event)
         self._event_bus.on(event, handler)
 
-    # ── Internal access (for advanced use / testing) ──────────────────────
+    # ── Internal access ───────────────────────────────────────────────────
 
     @property
     def detector(self) -> Detector:
-        """The internal Layer 1 detector (advanced use)."""
         return self._detector
 
     @property
     def engine(self) -> SQLPolicyEngine:
-        """The internal SQL policy engine (advanced use)."""
         return self._engine
 
     @property
     def adaptive_engine(self) -> AdaptiveEngine | None:
-        """The internal adaptive engine (advanced use)."""
         return self._adaptive
 
     @property
     def event_bus(self) -> EventBus:
-        """The internal event bus (advanced use)."""
         return self._event_bus
