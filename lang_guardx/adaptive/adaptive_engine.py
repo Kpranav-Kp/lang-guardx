@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from lang_guardx.adaptive.threat_ontology import ThreatOntology
 from lang_guardx.detection.bloom import BloomDetector
 
 
 class AdaptiveEngine:
-    """
-    Receives new attack patterns, classifies them by P2SQL taxonomy,
+    """Receives new attack patterns, classifies them by P2SQL taxonomy,
     and routes the update to the correct detection layer.
 
     Directly answers RQ4: the framework adapts to new patterns
@@ -29,14 +29,6 @@ class AdaptiveEngine:
         self._log_path = Path(log_path)
 
     def add_pattern(self, attack_id: str, new_pattern: str) -> str:
-        """
-        Add a new attack pattern to the appropriate detector.
-        Returns the update_target that received the pattern.
-
-        Currently supported targets:
-          bloom_corpus       -> adds to BloomDetector (RI.1)
-          none               -> deterministic rule, no update needed
-        """
         target = self._ontology.get_update_target(attack_id)
 
         if target == "bloom_corpus":
@@ -45,7 +37,7 @@ class AdaptiveEngine:
             self._log(attack_id, new_pattern, target)
 
         elif target == "none":
-            pass  # deterministic checks don't need corpus updates
+            pass
 
         return target
 
@@ -67,8 +59,26 @@ class AdaptiveEngine:
         with open(self._log_path) as f:
             return [json.loads(line) for line in f if line.strip()]
 
+    def export_state(self, path: str | Path) -> None:
+        """Export runtime state (adaptive bloom filter state + adaptation log) to JSON."""
+        state = {
+            "version": 1,
+            "exported_at": datetime.now(UTC).isoformat(),
+            "adaptation_log": self.get_adaptation_log(),
+            "adaptive_bloom_signatures": self._adaptive_bloom.signature_count,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+
+    def import_state(self, path: str | Path) -> None:
+        """Import previously exported runtime state (replays adaptation log)."""
+        with open(path) as f:
+            state = json.load(f)
+        for entry in state.get("adaptation_log", []):
+            self.add_pattern(entry["attack_id"], entry["pattern"])
+
     def _log(self, attack_id: str, pattern: str, target: str) -> None:
-        entry = {
+        entry: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "attack_id": attack_id,
             "pattern": pattern,

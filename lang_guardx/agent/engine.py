@@ -4,6 +4,8 @@ import sqlglot.expressions as exp
 from sqlglot import parse_one
 from sqlglot.errors import ParseError, TokenError
 
+from lang_guardx.config import EngineConfig
+
 from .policy import PolicyVerdict, SQLPolicy
 
 
@@ -36,6 +38,22 @@ class SQLPolicyEngine:
         self._all_restricted = frozenset().union(*self._restricted_cols_set.values())
         self._forbidden_ops_set = self._ALL_OPS - frozenset(op.upper() for op in policy.permitted_operations)
         self._scoped_tables_set = frozenset(t.lower() for t in policy.scoped_tables)
+
+    @classmethod
+    def from_config(cls, config: EngineConfig) -> SQLPolicyEngine:
+        """Create an engine from an :class:`EngineConfig`."""
+        return cls(
+            policy=SQLPolicy(
+                permitted_operations=config.policy.permitted_operations,
+                permitted_tables=config.policy.permitted_tables,
+                restricted_columns=config.policy.restricted_columns,
+                scoped_tables=config.policy.scoped_tables,
+                require_user_scope=config.policy.require_user_scope,
+                max_rows=config.policy.max_rows,
+            ),
+            current_user_id=config.current_user_id,
+            dialect=config.dialect,
+        )
 
     def validate(self, sql: str) -> PolicyVerdict:
         sql = sql.strip()

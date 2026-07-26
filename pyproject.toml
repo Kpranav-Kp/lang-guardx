@@ -46,7 +46,8 @@ dev = [
 ]
 
 [project.scripts]
-langguardx-verify = "lang_guardx.cli:verify"
+langguardx = "lang_guardx.cli:main"
+langguardx-verify = "lang_guardx.cli:cmd_verify"
 
 [tool.hatch.build.targets.wheel]
 packages = ["lang_guardx"]
