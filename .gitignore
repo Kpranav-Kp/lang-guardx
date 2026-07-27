@@ -13,3 +13,6 @@ output/
 .env
 .env.*
 .db
+
+# Personal reference docs (not for staging/committing)
+*_ref.md

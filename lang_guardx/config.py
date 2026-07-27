@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Union, get_args, get_origin
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def _import_tomllib():
@@ -41,6 +41,20 @@ class BloomConfig(BaseModel):
     false_positive_rate: float = 0.001
     corpus_path: str | None = None
 
+    @field_validator("false_positive_rate")
+    @classmethod
+    def _valid_fpr(cls, v: float) -> float:
+        if not 0 < v < 1:
+            raise ValueError("false_positive_rate must be in (0, 1)")
+        return v
+
+    @field_validator("capacity")
+    @classmethod
+    def _positive_capacity(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("capacity must be positive")
+        return v
+
 
 class RegexConfig(BaseModel):
     """Configuration for the regex detection layer."""
@@ -57,6 +71,27 @@ class DistilBertConfig(BaseModel):
     brm_cost_fp: float = 1.0
     brm_cost_fn: float = 2.0
     brm_uncertain_ratio: float = 0.2
+
+    @field_validator("threshold")
+    @classmethod
+    def _valid_threshold(cls, v: float) -> float:
+        if not 0 <= v <= 1:
+            raise ValueError("threshold must be in [0, 1]")
+        return v
+
+    @field_validator("brm_cost_fp", "brm_cost_fn")
+    @classmethod
+    def _positive_cost(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("brm_cost_fp and brm_cost_fn must be positive")
+        return v
+
+    @field_validator("brm_uncertain_ratio")
+    @classmethod
+    def _valid_uncertain_ratio(cls, v: float) -> float:
+        if not 0 <= v <= 1:
+            raise ValueError("brm_uncertain_ratio must be in [0, 1]")
+        return v
 
 
 class DetectionConfig(BaseModel):
@@ -80,6 +115,20 @@ class PolicyConfig(BaseModel):
     scoped_tables: list[str] = Field(default_factory=list)
     require_user_scope: bool = False
     max_rows: int = 1000
+
+    @field_validator("permitted_operations")
+    @classmethod
+    def _non_empty_ops(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("permitted_operations cannot be empty")
+        return [op.upper() for op in v]
+
+    @field_validator("max_rows")
+    @classmethod
+    def _valid_max_rows(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("max_rows must be non-negative")
+        return v
 
 
 class EngineConfig(BaseModel):
@@ -109,6 +158,13 @@ class LangChainConfig(BaseModel):
 
     enabled: bool = False
     top_k: int = 10
+
+    @field_validator("top_k")
+    @classmethod
+    def _positive_top_k(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("top_k must be positive")
+        return v
 
 
 # ── Top-level Config ───────────────────────────────────────────────────────────
@@ -159,43 +215,87 @@ class Config(BaseModel):
     def from_env(cls) -> Config:
         """Load configuration from environment variables.
 
-        Recognised variables:
-          LANGGUARDX_DETECTION_ENABLED
-          LANGGUARDX_ADAPTIVE_ENABLED
-          LANGGUARDX_POLICY_PERMITTED_OPS
-          LANGGUARDX_POLICY_PERMITTED_TABLES
-          LANGGUARDX_POLICY_MAX_ROWS
-          LANGGUARDX_DIALECT
-          LANGGUARDX_LANGCHAIN_ENABLED
-          LANGGUARDX_LANGCHAIN_TOP_K
+        Uses ``LANGGUARDX_`` prefix with ``__`` as the path separator::
+
+          LANGGUARDX_DETECTION__BLOOM__ENABLED = false
+          LANGGUARDX_ENGINE__POLICY__PERMITTED_TABLES = products, orders
+          LANGGUARDX_DETECTION__DISTILBERT__THRESHOLD = 0.85
+          LANGGUARDX_ADAPTIVE__ENABLED = false
+
+        Supported value types:
+          * ``true``/``false``, ``1``/``0``, ``yes``/``no``  →  ``bool``
+          * comma-separated items                                →  ``list[str]``
+          * ``key=val,key=val``                                   →  ``dict[str, str]``
+          * numeric strings                                       →  ``int`` / ``float``
         """
         cfg = cls()
+        for key, value in sorted(os.environ.items()):
+            if not key.startswith("LANGGUARDX_") or key == "LANGGUARDX":
+                continue
+            suffix = key[len("LANGGUARDX_") :]
+            parts = suffix.lower().split("__")
 
-        if (v := os.getenv("LANGGUARDX_DETECTION_ENABLED")) is not None:
-            cfg.detection.enabled = v.lower() == "true"
-
-        if (v := os.getenv("LANGGUARDX_ADAPTIVE_ENABLED")) is not None:
-            cfg.adaptive.enabled = v.lower() == "true"
-
-        if (v := os.getenv("LANGGUARDX_POLICY_PERMITTED_OPS")) is not None:
-            cfg.engine.policy.permitted_operations = [x.strip() for x in v.split(",") if x.strip()]
-
-        if (v := os.getenv("LANGGUARDX_POLICY_PERMITTED_TABLES")) is not None:
-            cfg.engine.policy.permitted_tables = [x.strip() for x in v.split(",") if x.strip()]
-
-        if (v := os.getenv("LANGGUARDX_POLICY_MAX_ROWS")) is not None:
-            cfg.engine.policy.max_rows = int(v)
-
-        if (v := os.getenv("LANGGUARDX_DIALECT")) is not None:
-            cfg.engine.dialect = v
-
-        if (v := os.getenv("LANGGUARDX_LANGCHAIN_ENABLED")) is not None:
-            cfg.langchain.enabled = v.lower() == "true"
-
-        if (v := os.getenv("LANGGUARDX_LANGCHAIN_TOP_K")) is not None:
-            cfg.langchain.top_k = int(v)
-
+            # Walk the nested model tree
+            obj = cfg
+            for part in parts[:-1]:
+                if hasattr(obj, part):
+                    obj = getattr(obj, part)
+                else:
+                    break
+            else:
+                field_name = parts[-1]
+                if hasattr(obj, field_name):
+                    ann = obj.__class__.model_fields[field_name].annotation
+                    typed_value = cls._coerce_env(value, ann) if ann is not None else value
+                    setattr(obj, field_name, typed_value)
         return cfg
+
+    @staticmethod
+    def _coerce_env(value: str, ann: Any) -> Any:
+        """Convert an env-var string to the target Python type according to *ann*."""
+        # Unwrap Optional[X] → X
+        origin = get_origin(ann)
+        args = get_args(ann)
+        if origin is Union:
+            non_none = [a for a in args if a is not type(None)]
+            if len(non_none) == 1:
+                ann = non_none[0]
+                origin = get_origin(ann)
+                args = get_args(ann)
+
+        # bool
+        if ann is bool:
+            return value.lower() in ("true", "1", "yes")
+        # int
+        if ann is int:
+            return int(value)
+        # float
+        if ann is float:
+            return float(value)
+        # list[X]
+        if origin is list and args:
+            item_type = args[0]
+            items = [x.strip() for x in value.split(",") if x.strip()]
+            if item_type is str:
+                return items
+            return [item_type(x) for x in items]
+        # dict[K, V]  —  expects "k=v,k=v" format
+        if origin is dict and args:
+            k_type, v_type = args
+            result: dict = {}
+            for pair in value.split(","):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    k = k.strip()
+                    v = v.strip()
+                    if k_type is not str:
+                        k = k_type(k)
+                    if v_type is not str:
+                        v = v_type(v)
+                    result[k] = v
+            return result
+        # str (default)
+        return value
 
     def save(self, path: str | Path, fmt: str | None = None) -> None:
         """Save configuration to a file.
