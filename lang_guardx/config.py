@@ -197,14 +197,14 @@ class Config(BaseModel):
 
         return cfg
 
-    def save(self, path: str | Path, format: str | None = None) -> None:
+    def save(self, path: str | Path, fmt: str | None = None) -> None:
         """Save configuration to a file.
 
-        The output format is inferred from the file suffix when *format* is ``None``.
+        The output format is inferred from the file suffix when *fmt* is ``None``.
         """
         path = Path(path)
         suffix = path.suffix.lower()
-        fmt = format or {"yaml": "yaml", "yml": "yaml", "json": "json", "toml": "toml"}.get(suffix.lstrip("."), "yaml")
+        fmt = fmt or {"yaml": "yaml", "yml": "yaml", "json": "json", "toml": "toml"}.get(suffix.lstrip("."), "yaml")
         data = self.model_dump(mode="python")
         if fmt == "yaml":
             with open(path, "w", encoding="utf-8") as f:

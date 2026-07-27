@@ -263,6 +263,10 @@ class Detector:
         """Remove a previously registered layer by its ``name``."""
         self._layers = [layer for layer in self._layers if layer.name != name]
 
+    def list_layers(self) -> list[DetectionLayer]:
+        """Return the list of registered detection layers (sorted by priority)."""
+        return sorted(self._layers, key=lambda x: x.priority)
+
     # ── Main detection pipeline ──────────────────────────────────────────
 
     def check(self, text: str) -> DetectionResult:

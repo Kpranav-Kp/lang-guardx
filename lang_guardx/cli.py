@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 
 def _get_version() -> str:
@@ -36,28 +35,24 @@ def _json_or_text(data: dict, flag: bool) -> str:
 # ── Subcommands ────────────────────────────────────────────────────────
 
 
-def cmd_verify(args: argparse.Namespace) -> None:
+def cmd_verify(args: argparse.Namespace | None = None) -> None:
     """Print version and environment info."""
     info = {
         "version": _get_version(),
         "python": sys.version.split()[0],
         "platform": sys.platform,
     }
-    if args.json:
+    _json = getattr(args, "json", False) if args else False
+    _verbose = getattr(args, "verbose", False) if args else False
+
+    if _json:
         print(json.dumps(info, indent=2))
         return
 
     _out(f"LangGuardX {info['version']}", bold=True, color="cyan")
     _out(f"  Python {info['python']} on {info['platform']}")
-    if args.verbose:
-        try:
-            with open(Path(__file__).resolve().parent / "pyproject.toml") as f:
-                for line in f:
-                    if line.startswith("dependencies"):
-                        _out(f"  {line.strip()}")
-                        break
-        except OSError:
-            pass
+    if _verbose:
+        _out("  dependencies: see pyproject.toml")
 
 
 def cmd_config(args: argparse.Namespace) -> None:
@@ -196,7 +191,7 @@ def cmd_rules(args: argparse.Namespace) -> None:
     from lang_guardx import LangGuardX
 
     guard = LangGuardX(args.config)
-    rules = list(getattr(guard.engine, "_rules", []))
+    rules = guard.engine.list_rules()
 
     if args.json:
         print(json.dumps([{"name": getattr(r, "name", type(r).__name__), "priority": getattr(r, "priority", 99)} for r in rules], indent=2))
@@ -218,7 +213,7 @@ def cmd_layers(args: argparse.Namespace) -> None:
     from lang_guardx import LangGuardX
 
     guard = LangGuardX(args.config)
-    layers = guard.detector._layers if hasattr(guard.detector, "_layers") else []
+    layers = guard.detector.list_layers()
 
     if args.json:
         print(json.dumps([{"name": getattr(lyr, "name", type(lyr).__name__), "priority": getattr(lyr, "priority", 99)} for lyr in sorted(layers, key=lambda x: getattr(x, "priority", 99))], indent=2))
@@ -233,6 +228,11 @@ def cmd_layers(args: argparse.Namespace) -> None:
         n = getattr(lyr, "name", type(lyr).__name__)
         p = getattr(lyr, "priority", 99)
         _out(f"  [{p:02d}] {n}", color="cyan")
+
+
+def _cmd_verify_entry() -> None:
+    """No-arg entry point for the ``langguardx-verify`` script."""
+    cmd_verify(None)
 
 
 # ── Parser ─────────────────────────────────────────────────────────────

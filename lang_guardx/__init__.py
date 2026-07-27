@@ -24,6 +24,7 @@ Usage::
 
 from lang_guardx._guard import LangGuardX
 from lang_guardx.config import Config
+from lang_guardx.detection import DetectionLayer, DetectionResult, Detector
 from lang_guardx.exceptions import (
     AdaptationError,
     BlockedRequest,
@@ -39,6 +40,9 @@ from lang_guardx.exceptions import (
 __all__ = [
     "LangGuardX",
     "Config",
+    "Detector",
+    "DetectionResult",
+    "DetectionLayer",
     "LangGuardXError",
     "ConfigurationError",
     "DetectionError",

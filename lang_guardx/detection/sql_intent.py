@@ -1,10 +1,22 @@
-from pathlib import Path
+from __future__ import annotations
 
-import torch
-from optimum.onnxruntime import ORTModelForSequenceClassification
-from transformers import (
-    DistilBertTokenizerFast,
-)
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
+    from optimum.onnxruntime import ORTModelForSequenceClassification
+    from transformers import DistilBertTokenizerFast
+
+try:
+    import torch
+    from optimum.onnxruntime import ORTModelForSequenceClassification
+    from transformers import DistilBertTokenizerFast
+
+    _ML_AVAILABLE = True
+except ImportError:
+    _ML_AVAILABLE = False
+
 
 DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "distilbert"
 
@@ -29,7 +41,13 @@ class SQLIntentClassifier:
             threshold  : Minimum confidence to call something a threat.
                          Below this, SAFE is assumed even if model
                          leans toward a threat class. Default 0.75.
+
+        Raises:
+            ImportError: If ``torch``, ``optimum``, or ``transformers``
+                are not installed.
         """
+        if not _ML_AVAILABLE:
+            raise ImportError("SQLIntentClassifier requires torch, optimum, and transformers. Install with: pip install langguardx[ml]")
         self.threshold = threshold
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

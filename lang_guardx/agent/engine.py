@@ -61,6 +61,10 @@ class SQLPolicyEngine:
         """Remove a previously registered rule by its ``name``."""
         self._rules = [r for r in self._rules if r.name != name]
 
+    def list_rules(self) -> list[PolicyRule]:
+        """Return the list of registered policy rules (sorted by priority)."""
+        return sorted(self._rules, key=lambda r: r.priority)
+
     # ── Validation ───────────────────────────────────────────────────────
 
     def validate(self, sql: str) -> PolicyVerdict:
