@@ -65,8 +65,11 @@ class LangChainSQLMiddleware:
         engine: Any,
         top_k: int = 10,
     ) -> None:
-        from langchain.agents import create_agent
-        from langchain_community.agent_toolkits import SQLDatabaseToolkit
+        try:
+            from langchain.agents import create_agent
+            from langchain_community.agent_toolkits import SQLDatabaseToolkit
+        except ImportError as exc:
+            raise ImportError("LangChainSQLMiddleware requires the langchain extras. Install with: pip install langguardx[langchain]") from exc
 
         self._protected_db = _PolicyEnforcedDatabase(db, engine)
         toolkit = SQLDatabaseToolkit(db=self._protected_db, llm=llm)
@@ -85,7 +88,10 @@ class LangChainSQLMiddleware:
         self._protected_db._set_trace(trace)
         cb = _TraceCallback(trace, self._protected_db, detector)
 
-        from langchain_core.runnables import RunnableConfig
+        try:
+            from langchain_core.runnables import RunnableConfig
+        except ImportError as exc:
+            raise ImportError("LangChainSQLMiddleware requires the langchain extras. Install with: pip install langguardx[langchain]") from exc
 
         start = time.monotonic()
         try:

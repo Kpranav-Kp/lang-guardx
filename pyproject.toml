@@ -12,37 +12,43 @@ license = { text = "MIT" }
 authors = [{ name = "K Pranav", email = "pranav2005.kp@example.com" }]
 
 dependencies = [
-    # Core utilities
+    # Core — always required
     "mmh3>=3.0.0",
     "bitarray>=2.7.0",
-    "huggingface-hub>=0.20.0",
-    "safetensors>=0.4.0",
     "sqlglot>=23.0.0",
     "pyyaml>=6.0.0",
     "regex>=2024.0.0",
     "pydantic>=2.0.0",
+]
 
-    # Machine learning
+[project.optional-dependencies]
+ml = [
     "torch>=2.0.0",
     "transformers>=4.35.0",
+    "optimum[onnxruntime]",
+    "huggingface-hub>=0.20.0",
+    "safetensors>=0.4.0",
+    "numpy>=1.24.0",
     "scikit-learn>=1.5.0",
-
-    # LangChain ecosystem
+]
+langchain = [
     "langchain>=0.1.0",
     "langchain-core>=0.1.0",
     "langchain-community>=0.0.1",
     "langchain-experimental>=0.0.1",
     "langchainhub>=0.1.0",
-
-    # Data and database
     "SQLAlchemy>=2.0.0",
-    "numpy>=1.24.0",
-    "pandas>=2.0.0",
 ]
-
-[project.optional-dependencies]
 dev = [
     "pytest>=9.0.0",
+    "pytest-asyncio",
+    "mypy",
+    "ruff",
+]
+all = [
+    "langguardx[ml]",
+    "langguardx[langchain]",
+    "langguardx[dev]",
 ]
 
 [project.scripts]

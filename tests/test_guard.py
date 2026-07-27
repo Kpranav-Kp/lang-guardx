@@ -10,11 +10,11 @@ import pytest
 from lang_guardx import (
     BlockedRequest,
     Config,
-    Detector,
     LangGuardX,
     LangGuardXError,
 )
 from lang_guardx.context import GuardContext
+from lang_guardx.detection import Detector
 from lang_guardx.events import EventBus, GuardEvent
 from lang_guardx.exceptions import ConfigurationError
 
@@ -368,8 +368,8 @@ class TestGuardContextManager:
 
 
 class TestBackwardCompat:
-    def test_detector_import_from_top_level(self):
-        from lang_guardx import Detector as D1
+    def test_detector_import_from_subpackage(self):
+        from lang_guardx.detection import Detector as D1
 
         assert D1 is Detector
 

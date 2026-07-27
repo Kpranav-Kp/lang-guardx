@@ -201,10 +201,15 @@ class Detector:
         resolved_threshold = distilbert_threshold if model_path is not None else cfg.distilbert.threshold
         self.bert: SQLIntentClassifier | None = None
         if cfg.distilbert.enabled:
-            self.bert = SQLIntentClassifier(
-                model_path=resolved_model_path,
-                threshold=resolved_threshold,
-            )
+            try:
+                self.bert = SQLIntentClassifier(
+                    model_path=resolved_model_path,
+                    threshold=resolved_threshold,
+                )
+            except ImportError:
+                import logging
+
+                logging.getLogger(__name__).warning("DistilBERT layer enabled but ML dependencies missing. Install with: pip install langguardx[ml]")
 
         # ── Layer 3 — Indirect Scanner ───────────────────────────────────
         self.scanner = IndirectScanner(

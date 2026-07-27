@@ -24,32 +24,28 @@ Usage::
 
 from lang_guardx._guard import LangGuardX
 from lang_guardx.config import Config
-from lang_guardx.detection import DetectionLayer, DetectionResult, Detector
 from lang_guardx.exceptions import (
-    AdaptationError,
     BlockedRequest,
     ConfigurationError,
-    DetectionError,
     LangGuardXError,
-    PluginRegistrationError,
-    PolicyViolation,
 )
 
 # ── Public API (framework-level) ───────────────────────────────────────────────
+# Only the stable, top-level API is exported here.  Internals such as
+# ``Detector``, ``SQLPolicyEngine``, and detection-layer classes live
+# in their respective subpackages and must be imported explicitly::
+#
+#     from lang_guardx.detection import Detector
+#
+# This gives us freedom to refactor internals without breaking downstream
+# users who only rely on ``LangGuardX`` and ``Config``.
 
 __all__ = [
     "LangGuardX",
     "Config",
-    "Detector",
-    "DetectionResult",
-    "DetectionLayer",
-    "LangGuardXError",
-    "ConfigurationError",
-    "DetectionError",
-    "PolicyViolation",
     "BlockedRequest",
-    "PluginRegistrationError",
-    "AdaptationError",
+    "ConfigurationError",
+    "LangGuardXError",
 ]
 
 # ── Version ────────────────────────────────────────────────────────────────────
