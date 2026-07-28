@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -62,7 +63,12 @@ class OpScanRule:
     _ALWAYS_FORBIDDEN = frozenset({"DROP", "TRUNCATE", "ALTER", "CREATE", "MERGE"})
 
     def apply(self, state: RuleState, policy: SQLPolicy, dialect: str) -> None:
-        tokens = state.original_sql.strip().upper().split()
+        # Strip SQL comments before tokenizing to avoid false positives
+        # on forbidden keywords inside comments.
+        cleaned = re.sub(r"/\*.*?\*/", "", state.original_sql, flags=re.DOTALL)
+        cleaned = re.sub(r"--[^\n]*", "", cleaned)
+        cleaned = re.sub(r"#[^\n]*", "", cleaned)
+        tokens = cleaned.strip().upper().split()
         if not tokens:
             state.blocked = True
             state.violations.append("Empty query")

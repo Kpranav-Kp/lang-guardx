@@ -226,12 +226,15 @@ class Detector:
         # ── Adaptive bloom (initially None; injected by AdaptiveEngine) ──
         self._adaptive_bloom: BloomDetector | None = None
 
+        # ── Master switch ──────────────────────────────────────────────────
+        self._enabled = cfg.enabled
+
         # ── Layer registry (thread-safe: copy-on-read) ──────────────────
         self._lock = threading.Lock()
         self._layers: list[DetectionLayer] = []
-        self._register_default_layers()
+        self._register_default_layers(cfg)
 
-    def _register_default_layers(self) -> None:
+    def _register_default_layers(self, cfg: DetectionConfig) -> None:
         """Register the built-in detection layers in priority order."""
         self._layers = [
             _BloomLayer(self.bloom),
@@ -239,9 +242,9 @@ class Detector:
             _RegexLayer(self.regex),
             _BertLayer(
                 self.bert,
-                brm_cost_fp=1.0,
-                brm_cost_fn=2.0,
-                brm_uncertain_ratio=0.2,
+                brm_cost_fp=cfg.distilbert.brm_cost_fp,
+                brm_cost_fn=cfg.distilbert.brm_cost_fn,
+                brm_uncertain_ratio=cfg.distilbert.brm_uncertain_ratio,
             ),
         ]
 
@@ -291,6 +294,9 @@ class Detector:
         If no layer blocks, returns the last non-blocking result
         (e.g. UNCERTAIN) or a clean pass.
         """
+        if not self._enabled:
+            return DetectionResult(blocked=False, reason="detection_disabled")
+
         normalized = _normalize(text)
         last_non_blocking: DetectionResult | None = None
 

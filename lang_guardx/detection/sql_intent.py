@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -54,7 +55,6 @@ class SQLIntentClassifier:
         path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
         onnx_path = path.parent / f"{path.name}_onnx"
 
-        self._pred_cache = {}
         if not path.exists():
             from huggingface_hub import snapshot_download
 
@@ -76,12 +76,15 @@ class SQLIntentClassifier:
             (label, confidence) e.g. ("DANGEROUS", 0.991)
         """
         key = text.strip().lower()
-        if key in self._pred_cache:
-            return self._pred_cache[key]
-        if not text or not text.strip():
+        if not key:
             return ("SAFE", 1.0)
+        return self._predict_cached(key)
+
+    @lru_cache(maxsize=4096)  # noqa: B019 — safe: instance is a singleton
+    def _predict_cached(self, key: str) -> tuple[str, float]:
+        """Cached inference — key must already be stripped + lowered."""
         enc = self.tokenizer(
-            text,
+            key,
             return_tensors="pt",
             truncation=True,
             padding=True,
@@ -98,7 +101,6 @@ class SQLIntentClassifier:
         confidence: float = float(round(float(probs[pred_idx].item()), 4))
         label: str = LABELS[pred_idx]
 
-        self._pred_cache[key] = (label, confidence)
         return label, confidence
 
     def is_threat(self, text: str) -> bool:
@@ -144,9 +146,15 @@ class SQLIntentClassifier:
 
     def predict_proba(self, text: str) -> dict[str, float]:
         """Return probability distribution over LABELS."""
-        if not text or not text.strip():
+        key = text.strip().lower()
+        if not key:
             return {"SAFE": 1.0, "DANGEROUS": 0.0, "INJECTION": 0.0}
-        enc = self.tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
+        return self._predict_proba_cached(key)
+
+    @lru_cache(maxsize=4096)  # noqa: B019 — safe: instance is a singleton
+    def _predict_proba_cached(self, key: str) -> dict[str, float]:
+        """Cached probability distribution — key must already be stripped + lowered."""
+        enc = self.tokenizer(key, return_tensors="pt", truncation=True, padding=True, max_length=128)
         enc = {k: v.to(self.device) for k, v in enc.items()}
         with torch.no_grad():
             logits = self.model(**enc).logits

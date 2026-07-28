@@ -260,7 +260,8 @@ class Config(BaseModel):
                     ann = obj.__class__.model_fields[field_name].annotation
                     typed_value = cls._coerce_env(value, ann) if ann is not None else value
                     setattr(obj, field_name, typed_value)
-        return cfg
+        # Re-validate so @field_validator decorators run on env-supplied values
+        return cls.model_validate(cfg.model_dump())
 
     @staticmethod
     def _coerce_env(value: str, ann: Any) -> Any:

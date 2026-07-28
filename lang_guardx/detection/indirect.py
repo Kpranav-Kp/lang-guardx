@@ -113,6 +113,7 @@ class IndirectScanner:
         return text
 
     def _decode_obfuscations(self, text: str) -> str:
+        MAX_EXTRA = 10_000  # max characters appended beyond original text
         result = text
         # Base64
         b64_pattern = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
@@ -121,7 +122,7 @@ class IndirectScanner:
                 decoded = base64.b64decode(m).decode("utf-8", errors="ignore")
                 result += " " + decoded
             except Exception as e:
-                logger.debug(f"Base64 decode failed: {e}")
+                logger.debug("Base64 decode failed: %s", e)
         # Rot13
         rot13_pattern = re.compile(r"[A-Za-z]{20,}")
         for m in rot13_pattern.findall(text):
@@ -130,7 +131,7 @@ class IndirectScanner:
                 if decoded != m and any(kw in decoded.lower() for kw in ["ignore", "bypass", "reveal"]):
                     result += " " + decoded
             except Exception as e:
-                logger.debug(f"Rot13 decode failed: {e}")
+                logger.debug("Rot13 decode failed: %s", e)
         # Hex string (e.g., "0x49 0x67 0x6e")
         hex_pattern = re.compile(r"0x[0-9A-Fa-f]{2}(?:\s+0x[0-9A-Fa-f]{2})+")
         for m in hex_pattern.findall(text):
@@ -139,7 +140,10 @@ class IndirectScanner:
                 decoded = bytes_arr.decode("utf-8", errors="ignore")
                 result += " " + decoded
             except Exception as e:
-                logger.debug(f"Hex decode failed: {e}")
+                logger.debug("Hex decode failed: %s", e)
+        # Enforce cap to prevent memory blow-up from adversarial DB content
+        if len(result) > len(text) + MAX_EXTRA:
+            result = result[: len(text) + MAX_EXTRA]
         return result
 
     def scan_text(self, text: str) -> ScanResult:
