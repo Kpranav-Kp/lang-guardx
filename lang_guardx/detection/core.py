@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -10,6 +11,8 @@ from .bloom import BloomDetector
 from .indirect import IndirectScanner
 from .regex import RegexDetector
 from .sql_intent import SQLIntentClassifier
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -149,7 +152,7 @@ class _BertLayer:
         if decision == "BLOCK":
             return DetectionResult(blocked=True, reason="distilbert_brm", detail=label, confidence=conf)
         if decision == "UNCERTAIN":
-            print(f"[UNCERTAIN] {text[:100]}")
+            logger.info("UNCERTAIN: %s", text[:100])
             return DetectionResult(blocked=False, reason="uncertain", detail=label, confidence=conf)
         return None
 

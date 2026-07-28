@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,10 +13,12 @@ from lang_guardx.agent.engine import SQLPolicyEngine
 from lang_guardx.agent.policy import PolicyVerdict, SQLPolicy
 from lang_guardx.config import Config
 from lang_guardx.context import GuardContext
-from lang_guardx.detection.core import DetectionResult, Detector
+from lang_guardx.detection.core import Detector
 from lang_guardx.detection.indirect import ScanResult
 from lang_guardx.events import EventBus, GuardEvent
-from lang_guardx.exceptions import BlockedRequest, ConfigurationError
+from lang_guardx.exceptions import BlockedRequest, ConfigurationError, DetectionError
+
+logger = logging.getLogger(__name__)
 
 
 class LangGuardX:
@@ -115,7 +118,12 @@ class LangGuardX:
     # ── Layer 1 — Input Detection ─────────────────────────────────────────
 
     def protect(self, text: str) -> GuardContext:
-        """Run the full input detection pipeline on *text*."""
+        """Run the full input detection pipeline on *text*.
+
+        Fails closed: if the pipeline itself crashes, the error is
+        logged and a ``DetectionError`` is raised so the caller must
+        explicitly decide how to handle it (shadow-mode, retry, etc.).
+        """
         ctx = GuardContext(raw_input=text)
         self._event_bus.emit(GuardEvent.BEFORE_DETECTION, ctx)
         try:
@@ -123,9 +131,8 @@ class LangGuardX:
             ctx.detection_result = result
         except Exception as exc:
             self._event_bus.emit(GuardEvent.ON_ERROR, ctx, exc)
-            ctx.metadata["detection_error"] = str(exc)
-            result = DetectionResult(blocked=False, reason="error", detail=str(exc))
-            ctx.detection_result = result
+            logger.exception("Detection pipeline crashed for input: %r", text[:100])
+            raise DetectionError(f"Detection failed: {exc}") from exc
 
         self._event_bus.emit(GuardEvent.AFTER_DETECTION, ctx)
         if result.blocked:

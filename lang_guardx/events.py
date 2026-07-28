@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class GuardEvent(Enum):
@@ -63,9 +66,7 @@ class EventBus:
             try:
                 handler(*args, **kwargs)
             except Exception as exc:
-                import logging
-
-                logging.getLogger(__name__).warning("Handler %r failed for event %s: %s", handler, event.value, exc)
+                logger.warning("Handler %r failed for event %s: %s", handler, event.value, exc)
 
     def clear(self) -> None:
         """Remove all handlers."""

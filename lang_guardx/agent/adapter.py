@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from .policy import PolicyVerdict, Verdict
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -191,7 +194,7 @@ class _TraceCallback(_CallbackBase):  # type: ignore
                         step.layer3_flagged = True
                         self._trace.layer3_hits += 1
                 except Exception as e:
-                    print(f"[Layer 3 warning] Scanner failed: {e}")
+                    logger.warning("Layer 3 scanner failed: %s", e)
 
         self._trace.steps.append(step)
         self._step_index += 1

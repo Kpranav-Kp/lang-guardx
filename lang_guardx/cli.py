@@ -35,7 +35,7 @@ def _json_or_text(data: dict, flag: bool) -> str:
 # ── Subcommands ────────────────────────────────────────────────────────
 
 
-def cmd_verify(args: argparse.Namespace | None = None) -> None:
+def cmd_verify(args: argparse.Namespace | None = None) -> int:
     """Print version and environment info."""
     info = {
         "version": _get_version(),
@@ -47,15 +47,16 @@ def cmd_verify(args: argparse.Namespace | None = None) -> None:
 
     if _json:
         print(json.dumps(info, indent=2))
-        return
+        return 0
 
     _out(f"LangGuardX {info['version']}", bold=True, color="cyan")
     _out(f"  Python {info['python']} on {info['platform']}")
     if _verbose:
         _out("  dependencies: see pyproject.toml")
+    return 0
 
 
-def cmd_config(args: argparse.Namespace) -> None:
+def cmd_config(args: argparse.Namespace) -> int:
     """Show the resolved configuration."""
     from lang_guardx import LangGuardX
 
@@ -63,13 +64,14 @@ def cmd_config(args: argparse.Namespace) -> None:
     cfg = guard.config.model_dump(mode="json")
     if args.json:
         print(json.dumps(cfg, indent=2, default=str))
-        return
+        return 0
 
     _out("Resolved configuration:", bold=True)
     _out(json.dumps(cfg, indent=2, default=str), color="cyan")
+    return 0
 
 
-def cmd_check(args: argparse.Namespace) -> None:
+def cmd_check(args: argparse.Namespace) -> int:
     """Run Layer 1 detection on a text input."""
     from lang_guardx import LangGuardX
 
@@ -77,13 +79,13 @@ def cmd_check(args: argparse.Namespace) -> None:
     text = args.text or sys.stdin.read().strip()
     if not text:
         _out("No input provided.", color="red")
-        sys.exit(1)
+        return 1
 
     ctx = guard.protect(text)
     r = ctx.detection_result
     if r is None:
         _out("No detection result returned.", color="red")
-        sys.exit(1)
+        return 1
 
     if args.json:
         print(
@@ -106,10 +108,10 @@ def cmd_check(args: argparse.Namespace) -> None:
     else:
         _out("PASS", bold=True, color="green")
 
-    sys.exit(1 if r.blocked else 0)
+    return 1 if r.blocked else 0
 
 
-def cmd_validate(args: argparse.Namespace) -> None:
+def cmd_validate(args: argparse.Namespace) -> int:
     """Run Layer 2 SQL policy validation on a SQL query."""
     from lang_guardx import LangGuardX
 
@@ -117,7 +119,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     sql = args.sql or sys.stdin.read().strip()
     if not sql:
         _out("No SQL provided.", color="red")
-        sys.exit(1)
+        return 1
 
     verdict = guard.validate_sql(sql)
 
@@ -142,10 +144,10 @@ def cmd_validate(args: argparse.Namespace) -> None:
         else:
             _out("PASSED", bold=True, color="green")
 
-    sys.exit(0 if verdict.verdict.value == "PASSED" else 1)
+    return 0 if verdict.verdict.value == "PASSED" else 1
 
 
-def cmd_scan(args: argparse.Namespace) -> None:
+def cmd_scan(args: argparse.Namespace) -> int:
     """Run Layer 3 scanning on a JSON file of DB rows."""
     from lang_guardx import LangGuardX
 
@@ -156,7 +158,7 @@ def cmd_scan(args: argparse.Namespace) -> None:
             rows = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         _out(f"Error reading {args.file}: {exc}", color="red")
-        sys.exit(1)
+        return 1
 
     sanitized, flags = guard.scan_results(rows)
     flagged = [{"reason": f.reason, "original": str(f.original)[:200]} for f in flags]
@@ -172,7 +174,7 @@ def cmd_scan(args: argparse.Namespace) -> None:
                 indent=2,
             )
         )
-        return
+        return 1 if flags else 0
 
     _out(f"Scanned {len(rows)} row(s), flagged {len(flags)}.", bold=True)
     for f_ in flagged:
@@ -185,8 +187,10 @@ def cmd_scan(args: argparse.Namespace) -> None:
             json.dump(sanitized, f, indent=2)
         _out(f"Sanitized output written to {args.output}", color="cyan")
 
+    return 1 if flags else 0
 
-def cmd_rules(args: argparse.Namespace) -> None:
+
+def cmd_rules(args: argparse.Namespace) -> int:
     """List registered policy rules."""
     from lang_guardx import LangGuardX
 
@@ -195,20 +199,21 @@ def cmd_rules(args: argparse.Namespace) -> None:
 
     if args.json:
         print(json.dumps([{"name": getattr(r, "name", type(r).__name__), "priority": getattr(r, "priority", 99)} for r in rules], indent=2))
-        return
+        return 0
 
     if not rules:
         _out("No rules registered.", color="yellow")
-        return
+        return 0
 
     _out(f"Policy rules ({len(rules)}):", bold=True)
     for r in rules:
         n = getattr(r, "name", type(r).__name__)
         p = getattr(r, "priority", 99)
         _out(f"  [{p:02d}] {n}", color="cyan")
+    return 0
 
 
-def cmd_layers(args: argparse.Namespace) -> None:
+def cmd_layers(args: argparse.Namespace) -> int:
     """List registered detection layers."""
     from lang_guardx import LangGuardX
 
@@ -217,17 +222,18 @@ def cmd_layers(args: argparse.Namespace) -> None:
 
     if args.json:
         print(json.dumps([{"name": getattr(lyr, "name", type(lyr).__name__), "priority": getattr(lyr, "priority", 99)} for lyr in sorted(layers, key=lambda x: getattr(x, "priority", 99))], indent=2))
-        return
+        return 0
 
     if not layers:
         _out("No layers registered.", color="yellow")
-        return
+        return 0
 
     _out(f"Detection layers ({len(layers)}):", bold=True)
     for lyr in sorted(layers, key=lambda x: getattr(x, "priority", 99)):
         n = getattr(lyr, "name", type(lyr).__name__)
         p = getattr(lyr, "priority", 99)
         _out(f"  [{p:02d}] {n}", color="cyan")
+    return 0
 
 
 def _cmd_verify_entry() -> None:
@@ -287,7 +293,7 @@ def main() -> None:
 
     cmd = commands.get(args.command)
     if cmd:
-        cmd(args)
+        sys.exit(cmd(args) or 0)
     else:
         parser.print_help()
         sys.exit(1)
