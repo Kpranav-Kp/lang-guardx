@@ -80,10 +80,10 @@ def _check_tool_sequence(steps: list[StepTrace]) -> str | None:
 try:
     from langchain_community.utilities import SQLDatabase as _SQLDatabase
 except ImportError:
-    _SQLDatabase: type = object  # type: ignore
+    _SQLDatabase: type = object
 
 
-class _PolicyEnforcedDatabase(_SQLDatabase):  # type: ignore
+class _PolicyEnforcedDatabase(_SQLDatabase):
     """Wraps a LangChain SQLDatabase to enforce SQL policy on every query."""
 
     def __init__(self, db, engine):
@@ -137,10 +137,10 @@ If the user asks anything not about the database, reply: "I can only answer ques
 try:
     from langchain_core.callbacks import BaseCallbackHandler as _CallbackBase
 except ImportError:
-    _CallbackBase: type = object  # type: ignore
+    _CallbackBase: type = object
 
 
-class _TraceCallback(_CallbackBase):  # type: ignore
+class _TraceCallback(_CallbackBase):
     """LangChain callback that records StepTrace and runs Layer 3 scanning."""
 
     def __init__(self, trace: AgentTrace, db: _PolicyEnforcedDatabase, detector) -> None:

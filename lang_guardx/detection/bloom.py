@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -93,9 +94,13 @@ class _BloomFilter:
         Expected number of elements to insert.
     false_positive_rate : float
         Desired false positive probability (0 < fpr < 1).
+
+    Thread-safe: a ``threading.Lock`` guards all mutations and reads
+    so the filter can be shared across concurrent requests.
     """
 
     def __init__(self, capacity: int = 100_000, false_positive_rate: float = 0.001) -> None:
+        self._lock = threading.Lock()
         self._m: int = max(
             1,
             math.ceil(-(capacity * math.log(false_positive_rate)) / (math.log(2) ** 2)),
@@ -128,11 +133,11 @@ class _BloomFilter:
         item : str
             Already-normalised string to insert.
         """
-
-        pos = self._bit_indices(item)
-        for i in pos:
-            self._bits[i] = 1
-        self._count += 1
+        with self._lock:
+            pos = self._bit_indices(item)
+            for i in pos:
+                self._bits[i] = 1
+            self._count += 1
 
     def might_contain(self, item: str) -> bool:
         """
@@ -143,15 +148,17 @@ class _BloomFilter:
         -------
         bool
         """
-        indices = self._bit_indices(item)
-        for pos in indices:
-            if not self._bits[pos]:
-                return False
-        return True
+        with self._lock:
+            indices = self._bit_indices(item)
+            for pos in indices:
+                if not self._bits[pos]:
+                    return False
+            return True
 
     @property
     def count(self) -> int:
-        return self._count
+        with self._lock:
+            return self._count
 
 
 class BloomDetector:
@@ -163,6 +170,7 @@ class BloomDetector:
     _WINDOW_TOKENS: int = 4
 
     def __init__(self, capacity: int = 100_000, false_positive_rate: float = 0.001) -> None:
+        self._lock = threading.Lock()
         self._filter = _BloomFilter(capacity, false_positive_rate)
         self._signature_count: int = 0
 
@@ -185,7 +193,8 @@ class BloomDetector:
                 for length in range(min_window, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
                     window = " ".join(tokens[start : start + length])
                     self._filter.add(window)
-        self._signature_count += added
+        with self._lock:
+            self._signature_count += added
         return added
 
     def load_corpus_from_file(self, path: str | Path) -> int:
@@ -203,10 +212,6 @@ class BloomDetector:
         if len(tokens) < 2:
             return False
 
-        """for token in tokens:
-            if self._filter.might_contain(token):
-                return True"""
-
         for start in range(len(tokens)):
             for length in range(2, min(self._WINDOW_TOKENS + 1, len(tokens) - start + 1)):
                 window = " ".join(tokens[start : start + length])
@@ -217,7 +222,8 @@ class BloomDetector:
 
     @property
     def signature_count(self) -> int:
-        return self._signature_count
+        with self._lock:
+            return self._signature_count
 
     def __repr__(self) -> str:
         return f"BloomDetector(signatures={self._signature_count}, bits={self._filter._m:,}, k={self._filter._k})"

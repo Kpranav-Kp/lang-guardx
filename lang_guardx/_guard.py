@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -86,6 +88,9 @@ class LangGuardX:
 
         # Agent middleware (optional — set via use_middleware)
         self._middleware: Any = None
+
+        # Concurrency (thread safety for async API)
+        self._lock = threading.Lock()
 
     # ── Config ────────────────────────────────────────────────────────────
 
@@ -196,7 +201,8 @@ class LangGuardX:
         """Teach the guard a new attack pattern at runtime."""
         if self._adaptive is None:
             raise ConfigurationError("Adaptive engine is disabled in config")
-        target = self._adaptive.add_pattern(attack_id, pattern)
+        with self._lock:
+            target = self._adaptive.add_pattern(attack_id, pattern)
         self._event_bus.emit(GuardEvent.ON_ADAPTATION, self._adaptive)
         return target
 
@@ -204,13 +210,41 @@ class LangGuardX:
         """Export learned runtime state to a JSON file."""
         if self._adaptive is None:
             raise ConfigurationError("Adaptive engine is disabled in config")
-        self._adaptive.export_state(path)
+        with self._lock:
+            self._adaptive.export_state(path)
 
     def import_state(self, path: str | Path) -> None:
         """Import previously exported runtime state."""
         if self._adaptive is None:
             raise ConfigurationError("Adaptive engine is disabled in config")
-        self._adaptive.import_state(path)
+        with self._lock:
+            self._adaptive.import_state(path)
+
+    # ── Async API ─────────────────────────────────────────────────────────
+
+    async def protect_async(self, text: str) -> GuardContext:
+        """Async version of :meth:`protect`.
+
+        Runs the detection pipeline in a thread executor so it doesn't
+        block the event loop.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.protect, text)
+
+    async def validate_sql_async(self, sql: str) -> PolicyVerdict:
+        """Async version of :meth:`validate_sql`."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.validate_sql, sql)
+
+    async def scan_results_async(self, rows: list[dict]) -> tuple[list[dict], list[ScanResult]]:
+        """Async version of :meth:`scan_results`."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.scan_results, rows)
+
+    async def adapt_async(self, attack_id: str, pattern: str) -> str:
+        """Async version of :meth:`adapt`."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.adapt, attack_id, pattern)
 
     # ── Agent Middleware ──────────────────────────────────────────────────
 

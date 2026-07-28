@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from lang_guardx.config import EngineConfig
 
 from .policy import PolicyVerdict, SQLPolicy
@@ -27,6 +29,7 @@ class SQLPolicyEngine:
         current_user_id: int | None = None,
         dialect: str = "sqlite",
     ) -> None:
+        self._lock = threading.Lock()
         self._policy = policy
         self._user_id = current_user_id
         self._dialect = dialect
@@ -55,15 +58,18 @@ class SQLPolicyEngine:
 
         The rule will run for every ``validate()`` call in priority order.
         """
-        self._rules.append(rule)
+        with self._lock:
+            self._rules.append(rule)
 
     def remove_rule(self, name: str) -> None:
         """Remove a previously registered rule by its ``name``."""
-        self._rules = [r for r in self._rules if r.name != name]
+        with self._lock:
+            self._rules = [r for r in self._rules if r.name != name]
 
     def list_rules(self) -> list[PolicyRule]:
         """Return the list of registered policy rules (sorted by priority)."""
-        return sorted(self._rules, key=lambda r: r.priority)
+        with self._lock:
+            return sorted(self._rules, key=lambda r: r.priority)
 
     # ── Validation ───────────────────────────────────────────────────────
 
@@ -77,7 +83,9 @@ class SQLPolicyEngine:
             user_id=self._user_id,
         )
 
-        for rule in sorted(self._rules, key=lambda r: r.priority):
+        with self._lock:
+            rules = list(self._rules)
+        for rule in sorted(rules, key=lambda r: r.priority):
             rule.apply(state, self._policy, self._dialect)
             if state.blocked:
                 return PolicyVerdict.blocked(

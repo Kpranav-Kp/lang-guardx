@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,21 +24,20 @@ class AdaptiveEngine:
         ontology: ThreatOntology,
         log_path: str = "adaptive_log.jsonl",
     ) -> None:
+        self._lock = threading.Lock()
         self._bloom = bloom
         self._adaptive_bloom = BloomDetector()
         self._ontology = ontology
         self._log_path = Path(log_path)
 
     def add_pattern(self, attack_id: str, new_pattern: str) -> str:
-        target = self._ontology.get_update_target(attack_id)
+        with self._lock:
+            target = self._ontology.get_update_target(attack_id)
 
-        if target == "bloom_corpus":
-            self._adaptive_bloom.load_corpus([new_pattern], min_window=4)
-            self._ontology.add_fuzzer_instance(attack_id, new_pattern)
-            self._log(attack_id, new_pattern, target)
-
-        elif target == "none":
-            pass
+            if target == "bloom_corpus":
+                self._adaptive_bloom.load_corpus([new_pattern], min_window=4)
+                self._ontology.add_fuzzer_instance(attack_id, new_pattern)
+                self._log(attack_id, new_pattern, target)
 
         return target
 
@@ -49,24 +49,25 @@ class AdaptiveEngine:
         """Total patterns learned at runtime — thesis RQ4 metric."""
         if not self._log_path.exists():
             return 0
-        with open(self._log_path) as f:
+        with self._lock, open(self._log_path) as f:
             return sum(1 for _ in f)
 
     def get_adaptation_log(self) -> list[dict]:
         """Return full log as list of dicts for reporting."""
         if not self._log_path.exists():
             return []
-        with open(self._log_path) as f:
+        with self._lock, open(self._log_path) as f:
             return [json.loads(line) for line in f if line.strip()]
 
     def export_state(self, path: str | Path) -> None:
         """Export runtime state (adaptive bloom filter state + adaptation log) to JSON."""
-        state = {
-            "version": 1,
-            "exported_at": datetime.now(UTC).isoformat(),
-            "adaptation_log": self.get_adaptation_log(),
-            "adaptive_bloom_signatures": self._adaptive_bloom.signature_count,
-        }
+        with self._lock:
+            state = {
+                "version": 1,
+                "exported_at": datetime.now(UTC).isoformat(),
+                "adaptation_log": self.get_adaptation_log(),
+                "adaptive_bloom_signatures": self._adaptive_bloom.signature_count,
+            }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
 

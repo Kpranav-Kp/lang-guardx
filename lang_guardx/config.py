@@ -167,6 +167,17 @@ class LangChainConfig(BaseModel):
         return v
 
 
+# ── Concurrency sub-config ─────────────────────────────────────────────────────
+
+
+class ConcurrencyConfig(BaseModel):
+    """Configuration for thread safety and async operation."""
+
+    enabled: bool = True
+    max_workers: int = 4
+    async_timeout: float = 30.0
+
+
 # ── Top-level Config ───────────────────────────────────────────────────────────
 
 
@@ -181,6 +192,7 @@ class Config(BaseModel):
     engine: EngineConfig = Field(default_factory=EngineConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     langchain: LangChainConfig = Field(default_factory=LangChainConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
 
     # ── Loaders ───────────────────────────────────────────────────────────
 

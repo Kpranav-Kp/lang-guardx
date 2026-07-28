@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from enum import Enum
 from typing import Any
@@ -39,11 +40,13 @@ class EventBus:
     """
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._handlers: dict[GuardEvent, list[_handler]] = {}
 
     def on(self, event: GuardEvent, handler: _handler) -> None:
         """Register a handler for an event."""
-        self._handlers.setdefault(event, []).append(handler)
+        with self._lock:
+            self._handlers.setdefault(event, []).append(handler)
 
     def once(self, event: GuardEvent, handler: _handler) -> None:
         """Register a one-shot handler for an event."""
@@ -56,13 +59,16 @@ class EventBus:
 
     def off(self, event: GuardEvent, handler: _handler) -> None:
         """Remove a specific handler for an event."""
-        handlers = self._handlers.get(event, [])
-        if handler in handlers:
-            handlers.remove(handler)
+        with self._lock:
+            handlers = self._handlers.get(event, [])
+            if handler in handlers:
+                handlers.remove(handler)
 
     def emit(self, event: GuardEvent, *args: Any, **kwargs: Any) -> None:
         """Emit an event, calling all registered handlers in order."""
-        for handler in self._handlers.get(event, []):
+        with self._lock:
+            handlers = list(self._handlers.get(event, []))
+        for handler in handlers:
             try:
                 handler(*args, **kwargs)
             except Exception as exc:
@@ -70,4 +76,5 @@ class EventBus:
 
     def clear(self) -> None:
         """Remove all handlers."""
-        self._handlers.clear()
+        with self._lock:
+            self._handlers.clear()

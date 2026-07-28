@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -225,7 +226,8 @@ class Detector:
         # ── Adaptive bloom (initially None; injected by AdaptiveEngine) ──
         self._adaptive_bloom: BloomDetector | None = None
 
-        # ── Layer registry ───────────────────────────────────────────────
+        # ── Layer registry (thread-safe: copy-on-read) ──────────────────
+        self._lock = threading.Lock()
         self._layers: list[DetectionLayer] = []
         self._register_default_layers()
 
@@ -265,11 +267,13 @@ class Detector:
         The layer will be called for every ``check()`` invocation in
         priority order.  See :class:`DetectionLayer` for the contract.
         """
-        self._layers.append(layer)
+        with self._lock:
+            self._layers.append(layer)
 
     def remove_layer(self, name: str) -> None:
         """Remove a previously registered layer by its ``name``."""
-        self._layers = [layer for layer in self._layers if layer.name != name]
+        with self._lock:
+            self._layers = [layer for layer in self._layers if layer.name != name]
 
     def list_layers(self) -> list[DetectionLayer]:
         """Return the list of registered detection layers (sorted by priority)."""
@@ -290,7 +294,9 @@ class Detector:
         normalized = _normalize(text)
         last_non_blocking: DetectionResult | None = None
 
-        for layer in sorted(self._layers, key=lambda x: x.priority):
+        with self._lock:
+            layers = list(self._layers)
+        for layer in sorted(layers, key=lambda x: x.priority):
             result = layer.detect(normalized)
             if result is None:
                 continue
