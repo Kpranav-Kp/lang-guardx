@@ -14,7 +14,11 @@ class DetectionError(LangGuardXError):
 
 
 class PolicyViolation(LangGuardXError):
-    """SQL policy violation detected."""
+    """SQL policy violation detected.
+
+    Reserved for custom rules or future middleware that prefer
+    exceptions over ``PolicyVerdict`` returns.
+    """
 
 
 class BlockedRequest(LangGuardXError):
@@ -26,4 +30,7 @@ class PluginRegistrationError(LangGuardXError):
 
 
 class AdaptationError(LangGuardXError):
-    """Error during runtime adaptation."""
+    """Error during runtime adaptation.
+
+    Reserved for custom adaptive backends that raise on failure.
+    """

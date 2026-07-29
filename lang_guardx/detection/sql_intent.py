@@ -56,9 +56,7 @@ class SQLIntentClassifier:
         onnx_path = path.parent / f"{path.name}_onnx"
 
         if not path.exists():
-            from huggingface_hub import snapshot_download
-
-            snapshot_download(repo_id="KPranavKp/langguardx-distilbert", local_dir=str(path))
+            raise FileNotFoundError(f"DistilBERT model not found at {path}. Download it explicitly with:\n  huggingface-cli download KPranavKp/langguardx-distilbert --local-dir {path}")
 
         # Load tokenizer and model from local safetensors
         self.tokenizer: DistilBertTokenizerFast = DistilBertTokenizerFast.from_pretrained(str(path))

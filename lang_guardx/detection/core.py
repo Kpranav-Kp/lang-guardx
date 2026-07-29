@@ -9,7 +9,7 @@ from typing import Protocol
 from lang_guardx.config import DetectionConfig
 
 from .bloom import BloomDetector
-from .indirect import IndirectScanner
+from .indirect import IndirectScanner, ScanResult
 from .regex import RegexDetector
 from .sql_intent import SQLIntentClassifier
 
@@ -139,23 +139,33 @@ class _BertLayer:
         self._brm_cost_fp = brm_cost_fp
         self._brm_cost_fn = brm_cost_fn
         self._brm_uncertain_ratio = brm_uncertain_ratio
+        self._consecutive_errors = 0
+        self._disabled = False
 
     def detect(self, text: str) -> DetectionResult | None:
-        if self._bert is None:
+        if self._disabled or self._bert is None:
             return None
-        label, conf = self._bert.predict(text)
-        decision, _ = self._bert.decide(
-            text,
-            cost_fp=self._brm_cost_fp,
-            cost_fn=self._brm_cost_fn,
-            uncertain_ratio=self._brm_uncertain_ratio,
-        )
-        if decision == "BLOCK":
-            return DetectionResult(blocked=True, reason="distilbert_brm", detail=label, confidence=conf)
-        if decision == "UNCERTAIN":
-            logger.info("UNCERTAIN: %s", text[:100])
-            return DetectionResult(blocked=False, reason="uncertain", detail=label, confidence=conf)
-        return None
+        try:
+            label, conf = self._bert.predict(text)
+            decision, _ = self._bert.decide(
+                text,
+                cost_fp=self._brm_cost_fp,
+                cost_fn=self._brm_cost_fn,
+                uncertain_ratio=self._brm_uncertain_ratio,
+            )
+            self._consecutive_errors = 0
+            if decision == "BLOCK":
+                return DetectionResult(blocked=True, reason="distilbert_brm", detail=label, confidence=conf)
+            if decision == "UNCERTAIN":
+                logger.info("UNCERTAIN: %s", text[:100])
+                return DetectionResult(blocked=False, reason="uncertain", detail=label, confidence=conf)
+            return None
+        except Exception:
+            self._consecutive_errors += 1
+            if self._consecutive_errors >= 5:
+                logger.error("Disabling BERT layer after 5 consecutive failures")
+                self._disabled = True
+            return None
 
 
 # ── Detector Orchestrator ──────────────────────────────────────────────────────
@@ -210,10 +220,8 @@ class Detector:
                     model_path=resolved_model_path,
                     threshold=resolved_threshold,
                 )
-            except ImportError:
-                import logging
-
-                logging.getLogger(__name__).warning("DistilBERT layer enabled but ML dependencies missing. Install with: pip install langguardx[ml]")
+            except Exception:
+                logger.warning("DistilBERT layer disabled due to init error. Install ml extras or check model path.")
 
         # ── Layer 3 — Indirect Scanner ───────────────────────────────────
         self.scanner = IndirectScanner(
@@ -316,8 +324,8 @@ class Detector:
 
     # ── Layer 3 passthrough ──────────────────────────────────────────────
 
-    def scan_db_results(self, db_rows: list[dict]) -> tuple[list[dict], list]:
+    def scan_db_results(self, db_rows: list[dict]) -> tuple[list[dict], list[ScanResult]]:
         return self.scanner.scan(db_rows)
 
-    def scan_db_strings(self, texts: list[str]) -> tuple[list[str], list]:
+    def scan_db_strings(self, texts: list[str]) -> tuple[list[str], list[ScanResult]]:
         return self.scanner.scan_string_list(texts)

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import threading
 
 from lang_guardx.config import EngineConfig
 
 from .policy import PolicyVerdict, SQLPolicy
 from .rules import DEFAULT_RULES, PolicyRule, RuleState
+
+logger = logging.getLogger(__name__)
 
 
 class SQLPolicyEngine:
@@ -76,25 +79,34 @@ class SQLPolicyEngine:
     def validate(self, sql: str) -> PolicyVerdict:
         """Run the full SQL policy validation pipeline on *sql*.
 
+        Fails closed: if the pipeline itself crashes, the query is blocked
+        so an error never results in an unvalidated query reaching the DB.
+
         Returns a :class:`PolicyVerdict` with verdict PASSED, REWRITTEN, or BLOCKED.
         """
         state = RuleState(
             original_sql=sql.strip(),
             user_id=self._user_id,
         )
+        try:
+            with self._lock:
+                rules = list(self._rules)
+            for rule in sorted(rules, key=lambda r: r.priority):
+                rule.apply(state, self._policy, self._dialect)
+                if state.blocked:
+                    return PolicyVerdict.blocked(
+                        original_sql=state.original_sql,
+                        reason="; ".join(state.violations),
+                    )
 
-        with self._lock:
-            rules = list(self._rules)
-        for rule in sorted(rules, key=lambda r: r.priority):
-            rule.apply(state, self._policy, self._dialect)
-            if state.blocked:
-                return PolicyVerdict.blocked(
-                    original_sql=state.original_sql,
-                    reason="; ".join(state.violations),
-                )
+            if state.rewritten and state.tree is not None:
+                safe_sql = state.tree.sql(dialect=self._dialect)
+                return PolicyVerdict.rewritten(state.original_sql, safe_sql)
 
-        if state.rewritten and state.tree is not None:
-            safe_sql = state.tree.sql(dialect=self._dialect)
-            return PolicyVerdict.rewritten(state.original_sql, safe_sql)
-
-        return PolicyVerdict.passed(state.original_sql)
+            return PolicyVerdict.passed(state.original_sql)
+        except Exception as exc:
+            logger.exception("Policy engine crashed on SQL: %r", sql[:200])
+            return PolicyVerdict.blocked(
+                original_sql=sql.strip(),
+                reason=f"Policy validation error: {exc}",
+            )

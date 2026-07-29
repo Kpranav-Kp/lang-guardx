@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import functools
 import logging
 import threading
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,7 @@ from lang_guardx.agent.engine import SQLPolicyEngine
 from lang_guardx.agent.policy import PolicyVerdict, SQLPolicy
 from lang_guardx.config import Config
 from lang_guardx.context import GuardContext
-from lang_guardx.detection.core import Detector
+from lang_guardx.detection.core import Detector, _normalize
 from lang_guardx.detection.indirect import ScanResult
 from lang_guardx.events import EventBus, GuardEvent
 from lang_guardx.exceptions import BlockedRequest, ConfigurationError, DetectionError
@@ -91,6 +92,9 @@ class LangGuardX:
 
         # Concurrency (thread safety for async API)
         self._lock = threading.Lock()
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=self._config.concurrency.max_workers,
+        )
 
     # ── Config ────────────────────────────────────────────────────────────
 
@@ -130,6 +134,7 @@ class LangGuardX:
         explicitly decide how to handle it (shadow-mode, retry, etc.).
         """
         ctx = GuardContext(raw_input=text)
+        ctx.normalized_input = _normalize(text)
         self._event_bus.emit(GuardEvent.BEFORE_DETECTION, ctx)
         try:
             result = self._detector.check(text)
@@ -229,22 +234,22 @@ class LangGuardX:
         block the event loop.
         """
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.protect, text)
+        return await loop.run_in_executor(self._executor, self.protect, text)
 
     async def validate_sql_async(self, sql: str) -> PolicyVerdict:
         """Async version of :meth:`validate_sql`."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.validate_sql, sql)
+        return await loop.run_in_executor(self._executor, self.validate_sql, sql)
 
     async def scan_results_async(self, rows: list[dict]) -> tuple[list[dict], list[ScanResult]]:
         """Async version of :meth:`scan_results`."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.scan_results, rows)
+        return await loop.run_in_executor(self._executor, self.scan_results, rows)
 
     async def adapt_async(self, attack_id: str, pattern: str) -> str:
         """Async version of :meth:`adapt`."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.adapt, attack_id, pattern)
+        return await loop.run_in_executor(self._executor, self.adapt, attack_id, pattern)
 
     # ── Agent Middleware ──────────────────────────────────────────────────
 
@@ -316,6 +321,24 @@ class LangGuardX:
             return self._decorate(args[0])
 
         def _decorate(self, func: Callable[..., Any]) -> Callable[..., Any]:
+            if asyncio.iscoroutinefunction(func):
+
+                @functools.wraps(func)
+                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    input_text = ""
+                    if args and self._input_pos < len(args):
+                        input_text = str(args[self._input_pos])
+                    elif kwargs:
+                        input_text = str(next(iter(kwargs.values())))
+                    ctx = self._guard.protect(input_text)
+                    if ctx.detection_result and ctx.detection_result.blocked:
+                        raise BlockedRequest(ctx.detection_result.reason)
+                    result = await func(*args, **kwargs)
+                    self._guard._scan_output(result)
+                    return result
+
+                return async_wrapper
+
             @functools.wraps(func)
             def wrapper(*args: Any, **kwargs: Any) -> Any:
                 input_text = ""
@@ -365,6 +388,27 @@ class LangGuardX:
         finally:
             if ctx.db_results:
                 sanitized, flags = self.scan_results(ctx.db_results)
+                ctx.sanitized_results = sanitized
+                ctx.scan_flags = flags
+
+    @asynccontextmanager
+    async def acontext(self, text: str = "") -> AsyncIterator[GuardContext]:
+        """Async context manager wrapping a block with Layer 1 (enter) and Layer 3 (exit).
+
+        Usage::
+
+            async with guard.acontext("user message") as ctx:
+                result = await llm.ainvoke("user message")
+                # On exit, result is scanned if stored in ctx.db_results
+        """
+        ctx = await self.protect_async(text)
+        if ctx.detection_result and ctx.detection_result.blocked:
+            raise BlockedRequest(ctx.detection_result.reason)
+        try:
+            yield ctx
+        finally:
+            if ctx.db_results:
+                sanitized, flags = await self.scan_results_async(ctx.db_results)
                 ctx.sanitized_results = sanitized
                 ctx.scan_flags = flags
 

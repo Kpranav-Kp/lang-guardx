@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from collections.abc import Callable
@@ -73,6 +74,27 @@ class EventBus:
                 handler(*args, **kwargs)
             except Exception as exc:
                 logger.warning("Handler %r failed for event %s: %s", handler, event.value, exc)
+
+    async def aemit(self, event: GuardEvent, *args: Any, **kwargs: Any) -> None:
+        """Async version of :meth:`emit`.
+
+        Awaits coroutine handlers; calls sync handlers directly.
+        Safe to call from both sync and async code paths.
+        """
+        with self._lock:
+            handlers = list(self._handlers.get(event, []))
+        for handler in handlers:
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(*args, **kwargs)
+                else:
+                    handler(*args, **kwargs)
+            except Exception as exc:
+                logger.warning("Handler %r failed for event %s: %s", handler, event.value, exc)
+
+    async def aon(self, event: GuardEvent, handler: _handler) -> None:
+        """Async-compatible alias for :meth:`on` (identical behaviour)."""
+        self.on(event, handler)
 
     def clear(self) -> None:
         """Remove all handlers."""
